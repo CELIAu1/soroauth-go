@@ -3,6 +3,7 @@
   "sdk": "@stellar/stellar-sdk@17.1.0",
   "network_passphrase": "Test SDF Network ; September 2015",
   "valid_until_ledger": 1234567,
+  "pre_wrap_entry_xdr": "",
   "unsigned_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8p//////////wAAAAAAAAAQAAAAAQAAAAAAAAABAAAAAAAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8pWvoCdGinACXPAV9eMF+WRQgHRVLpb0UKoB7Pzl3TvugAAAAAu2I01hzOTZhiL7pFJXTFWW9t7fApEb0dc2AE30y09vgAAAAA=",
   "delegates": [],
   "steps": [

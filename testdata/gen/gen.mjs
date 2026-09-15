@@ -34,6 +34,7 @@ import {
   Networks,
   authorizeEntry,
   buildAuthorizationEntryPreimage,
+  buildWithDelegatesEntry,
   hash,
   xdr,
 } from "@stellar/stellar-sdk";
@@ -188,6 +189,30 @@ const invocationCreateContract = () =>
     subInvocations: [],
   });
 
+const DELEGATE_1 = "soroauth-vector-delegate-1";
+const DELEGATE_2 = "soroauth-vector-delegate-2";
+const DELEGATE_3 = "soroauth-vector-delegate-3";
+const DELEGATE_NESTED = "soroauth-vector-delegate-nested-1";
+
+// A delegate descriptor, recorded in the vector exactly as written here — in
+// input order, before any sorting. The Go side passes the same unsorted tree to
+// WithDelegates, so the recorded unsigned entry proves both implementations
+// sort and nest identically, rather than Go merely re-reading JS's output.
+const delegate = (label, nested = []) => ({
+  label,
+  address: keypairFor(label).publicKey(),
+  nested,
+});
+
+// Converts a recorded descriptor tree into the shape buildWithDelegatesEntry
+// expects. Signatures are left out, so each node starts as an scvVoid
+// placeholder to be filled by authorizeEntry.
+const toSdkDelegates = (delegates) =>
+  delegates.map((d) => ({
+    address: d.address,
+    nestedDelegates: toSdkDelegates(d.nested ?? []),
+  }));
+
 // ---------------------------------------------------------------------------
 // Entry construction
 // ---------------------------------------------------------------------------
@@ -298,6 +323,88 @@ const CASES = [
       }),
     steps: [{ signerLabel: SIGNER_1, forAddress: null }],
   },
+  {
+    // §5.9 case 6: three delegates in unsorted input order, one of them
+    // carrying a nested delegate. The top-level signature stays scvVoid — the
+    // account authenticates purely through its delegates (CAP-71-01) — and
+    // each delegate, including the nested one, is signed via forAddress.
+    name: "delegates_unsorted_with_nested",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithManyArgTypes(),
+        authV2: true,
+      }),
+    delegates: [
+      delegate(DELEGATE_3),
+      delegate(DELEGATE_1, [delegate(DELEGATE_NESTED)]),
+      delegate(DELEGATE_2),
+    ],
+    steps: [
+      { signerLabel: DELEGATE_1, forAddress: keypairFor(DELEGATE_1).publicKey() },
+      { signerLabel: DELEGATE_2, forAddress: keypairFor(DELEGATE_2).publicKey() },
+      { signerLabel: DELEGATE_3, forAddress: keypairFor(DELEGATE_3).publicKey() },
+      {
+        signerLabel: DELEGATE_NESTED,
+        forAddress: keypairFor(DELEGATE_NESTED).publicKey(),
+      },
+    ],
+  },
+  {
+    // §5.9 case 7: one address at two different nesting levels. Exactly one
+    // authorizeEntry call must fill both nodes, because under CAP-71-01 both
+    // commit to the same payload. There is deliberately only one step.
+    name: "delegates_same_address_two_levels",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: 42n,
+        invocation: invocationWithSubInvocations(),
+        authV2: true,
+      }),
+    // Ascending XDR order is delegate-2 < delegate-1, so this input is
+    // deliberately the wrong way round.
+    delegates: [
+      delegate(DELEGATE_1),
+      delegate(DELEGATE_2, [delegate(DELEGATE_1)]),
+    ],
+    steps: [
+      { signerLabel: DELEGATE_1, forAddress: keypairFor(DELEGATE_1).publicKey() },
+    ],
+  },
+  {
+    // §5.9 case 8: a legacy entry wrapped into the delegates arm. The wrap
+    // changes the payload from ENVELOPE_TYPE_SOROBAN_AUTHORIZATION to the
+    // address-bound variant, so this is the legacy-to-delegates conversion.
+    name: "delegates_from_legacy",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithManyArgTypes(),
+        authV2: false,
+      }),
+    // Unsorted at both levels: ascending XDR order is
+    // delegate-2 < delegate-nested-1 < delegate-1 < delegate-3, so the top
+    // level and the nested array are each given the wrong way round.
+    delegates: [
+      delegate(DELEGATE_1),
+      delegate(DELEGATE_2, [delegate(DELEGATE_3), delegate(DELEGATE_NESTED)]),
+    ],
+    steps: [
+      { signerLabel: DELEGATE_1, forAddress: keypairFor(DELEGATE_1).publicKey() },
+      { signerLabel: DELEGATE_2, forAddress: keypairFor(DELEGATE_2).publicKey() },
+      { signerLabel: DELEGATE_3, forAddress: keypairFor(DELEGATE_3).publicKey() },
+      {
+        signerLabel: DELEGATE_NESTED,
+        forAddress: keypairFor(DELEGATE_NESTED).publicKey(),
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -305,7 +412,24 @@ const CASES = [
 // ---------------------------------------------------------------------------
 
 const generate = async (testCase) => {
-  const entry = testCase.entry();
+  // A case that declares delegates is built in two stages, and both are
+  // recorded: the address entry before wrapping, and the wrapped entry. That
+  // lets the Go side reproduce the wrap itself rather than starting from JS's
+  // already-wrapped output.
+  let preWrapEntry = null;
+  let entry;
+  if (testCase.delegates) {
+    preWrapEntry = testCase.entry();
+    entry = buildWithDelegatesEntry({
+      entry: preWrapEntry,
+      validUntilLedgerSeq: VALID_UNTIL_LEDGER,
+      delegates: toSdkDelegates(testCase.delegates),
+      // signature omitted, so the top-level node is scvVoid
+    });
+  } else {
+    entry = testCase.entry();
+  }
+
   const unsignedXdr = entry.toXDR("base64");
 
   const preimage = buildAuthorizationEntryPreimage(
@@ -333,6 +457,7 @@ const generate = async (testCase) => {
     sdk: SDK,
     network_passphrase: testCase.networkPassphrase,
     valid_until_ledger: VALID_UNTIL_LEDGER,
+    pre_wrap_entry_xdr: preWrapEntry ? preWrapEntry.toXDR("base64") : "",
     unsigned_entry_xdr: unsignedXdr,
     delegates: testCase.delegates ?? [],
     steps: testCase.steps.map((step) => ({

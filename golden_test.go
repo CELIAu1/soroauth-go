@@ -26,9 +26,8 @@ type vectorStep struct {
 	ForAddress  *string `json:"for_address"`
 }
 
-// vectorDelegate describes the delegate tree a vector was built with. It is
-// recorded for readability; the tree itself is already inside the unsigned
-// entry.
+// vectorDelegate is one node of the delegate tree a vector was built from,
+// recorded in the exact order it was passed to the JS SDK, before any sorting.
 type vectorDelegate struct {
 	Label   string           `json:"label"`
 	Address string           `json:"address"`
@@ -41,6 +40,7 @@ type vector struct {
 	SDK               string           `json:"sdk"`
 	NetworkPassphrase string           `json:"network_passphrase"`
 	ValidUntilLedger  uint32           `json:"valid_until_ledger"`
+	PreWrapEntryXDR   string           `json:"pre_wrap_entry_xdr"`
 	UnsignedEntryXDR  string           `json:"unsigned_entry_xdr"`
 	Delegates         []vectorDelegate `json:"delegates"`
 	Steps             []vectorStep     `json:"steps"`
@@ -87,6 +87,24 @@ func loadVectors(t *testing.T) []vector {
 	return vectors
 }
 
+// toDelegates converts a recorded delegate tree into the library's own type,
+// preserving the recorded order exactly. Preserving it is the point: the tree
+// is recorded unsorted, so passing it through unchanged is what proves Go
+// sorts it into the same shape the JS SDK did.
+func toDelegates(recorded []vectorDelegate) []Delegate {
+	if len(recorded) == 0 {
+		return nil
+	}
+	out := make([]Delegate, 0, len(recorded))
+	for _, node := range recorded {
+		out = append(out, Delegate{
+			Address: node.Address,
+			Nested:  toDelegates(node.Nested),
+		})
+	}
+	return out
+}
+
 // signerForLabel derives the vector's signing key from its label, the same way
 // testdata/gen/gen.mjs does.
 func signerForLabel(t *testing.T, label string) Signer {
@@ -107,6 +125,35 @@ func TestGoldenVectors(t *testing.T) {
 			var entry xdr.SorobanAuthorizationEntry
 			if err := xdr.SafeUnmarshalBase64(v.UnsignedEntryXDR, &entry); err != nil {
 				t.Fatalf("decoding the unsigned entry: %v", err)
+			}
+
+			// 0. the wrap itself, for vectors that record a pre-wrap entry.
+			// Without this the delegate vectors would only prove that Go can
+			// re-read an entry JS already built; this proves Go builds the
+			// same bytes from the same unsorted input.
+			if v.PreWrapEntryXDR != "" {
+				wantUnsigned, err := base64.StdEncoding.DecodeString(v.UnsignedEntryXDR)
+				if err != nil {
+					t.Fatalf("decoding the expected unsigned entry: %v", err)
+				}
+
+				var preWrap xdr.SorobanAuthorizationEntry
+				if err := xdr.SafeUnmarshalBase64(v.PreWrapEntryXDR, &preWrap); err != nil {
+					t.Fatalf("decoding the pre-wrap entry: %v", err)
+				}
+
+				wrapped, err := WithDelegates(preWrap, v.ValidUntilLedger, toDelegates(v.Delegates), nil)
+				if err != nil {
+					t.Fatalf("WithDelegates returned an unexpected error: %v", err)
+				}
+				gotWrapped, err := wrapped.MarshalBinary()
+				if err != nil {
+					t.Fatalf("marshalling the wrapped entry: %v", err)
+				}
+				if !equalBytes(gotWrapped, wantUnsigned) {
+					t.Errorf("WithDelegates differs from buildWithDelegatesEntry\n want %x\n  got %x",
+						wantUnsigned, gotWrapped)
+				}
 			}
 
 			// 1. the preimage
@@ -176,6 +223,10 @@ func TestGoldenVectorsCoverTheRequiredCases(t *testing.T) {
 		"v2_sub_invocations",    // §5.9 case 4
 		"v2_create_contract",    // §5.9 case 5
 		"legacy_negative_nonce", // §5.9 case 9
+
+		"delegates_unsorted_with_nested",    // §5.9 case 6
+		"delegates_same_address_two_levels", // §5.9 case 7
+		"delegates_from_legacy",             // §5.9 case 8
 	}
 
 	present := map[string]bool{}
@@ -231,3 +282,99 @@ func TestGoldenPayloadsAreDistinct(t *testing.T) {
 // equalBytes is bytes.Equal, named here so the golden assertions read as
 // byte-for-byte comparisons.
 func equalBytes(a, b []byte) bool { return bytes.Equal(a, b) }
+
+// TestGoldenVectorSignsOneAddressAtTwoLevelsInOneStep pins §5.9 case 7 down
+// precisely: the vector must contain one address at two nesting depths, and
+// exactly ONE recorded signing step must fill both nodes. If a second step were
+// ever added to make the byte comparison pass, this test fails — the whole
+// point of the case is that one call covers both, because under CAP-71-01 both
+// nodes commit to the same payload.
+func TestGoldenVectorSignsOneAddressAtTwoLevelsInOneStep(t *testing.T) {
+	const name = "delegates_same_address_two_levels"
+
+	var found *vector
+	for _, v := range loadVectors(t) {
+		if v.Name == name {
+			candidate := v
+			found = &candidate
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("golden vector %q is missing", name)
+	}
+
+	if len(found.Steps) != 1 {
+		t.Fatalf("the vector records %d signing steps, want exactly 1", len(found.Steps))
+	}
+	step := found.Steps[0]
+	if step.ForAddress == nil {
+		t.Fatal("the step does not name a target address")
+	}
+
+	var entry xdr.SorobanAuthorizationEntry
+	if err := xdr.SafeUnmarshalBase64(found.UnsignedEntryXDR, &entry); err != nil {
+		t.Fatalf("decoding the unsigned entry: %v", err)
+	}
+
+	target, err := ParseAddress(*step.ForAddress)
+	if err != nil {
+		t.Fatalf("parsing the target address: %v", err)
+	}
+	targetEncoded, err := addressBytes(target)
+	if err != nil {
+		t.Fatalf("encoding the target address: %v", err)
+	}
+
+	countMatching := func(e xdr.SorobanAuthorizationEntry) (total, signed int) {
+		nodes, err := credentialNodes(&e)
+		if err != nil {
+			t.Fatalf("walking the entry: %v", err)
+		}
+		for _, node := range nodes {
+			if bytes.Equal(node.encoded, targetEncoded) {
+				total++
+				if isSigned(*node.signature) {
+					signed++
+				}
+			}
+		}
+		return total, signed
+	}
+
+	total, alreadySigned := countMatching(entry)
+	if total != 2 {
+		t.Fatalf("the address appears at %d nodes in the unsigned entry, want 2", total)
+	}
+	if alreadySigned != 0 {
+		t.Fatalf("%d nodes are already signed in the unsigned entry, want 0", alreadySigned)
+	}
+
+	// Depth must genuinely differ, or "two nodes" would just be a duplicate at
+	// one level, which CAP-71-01 forbids anyway.
+	topLevel := 0
+	for _, node := range entry.Credentials.AddressWithDelegates.Delegates {
+		encoded, err := addressBytes(node.Address)
+		if err != nil {
+			t.Fatalf("encoding a delegate address: %v", err)
+		}
+		if bytes.Equal(encoded, targetEncoded) {
+			topLevel++
+		}
+	}
+	if topLevel != 1 {
+		t.Errorf("the address appears %d times at the top level, want 1 there and 1 nested", topLevel)
+	}
+
+	signedEntry, err := AuthorizeEntry(context.Background(), entry,
+		signerForLabel(t, step.SignerLabel),
+		found.ValidUntilLedger, found.NetworkPassphrase, ForAddress(*step.ForAddress))
+	if err != nil {
+		t.Fatalf("the single signing step returned an unexpected error: %v", err)
+	}
+
+	total, nowSigned := countMatching(signedEntry)
+	if total != 2 || nowSigned != 2 {
+		t.Errorf("after one step, %d of %d nodes are signed; want 2 of 2", nowSigned, total)
+	}
+}
