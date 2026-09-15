@@ -72,6 +72,16 @@ func signersForEntry(entry xdr.SorobanAuthorizationEntry, signers []Signer) (mat
 // signer whose address appears anywhere in the tree is applied, each targeted
 // with ForAddress, and one matching signer anywhere in the tree is enough.
 //
+// What that means in practice, and it matters before submission: a delegate
+// node with no matching signer is left unsigned. AuthorizeAll does not fail for
+// it, because it cannot know whether that delegate's signature was required —
+// a 2-of-3 delegate policy is legitimate, and so is a tree where only one
+// branch needs to sign. But an unsigned G-account delegate node WILL fail
+// on-chain, after fees are paid, because a classic account cannot authenticate
+// with an empty signature. So a caller who is not certain every node needed to
+// be filled should check the per-node Signed flags that Inspect reports before
+// submitting, rather than treating a nil error here as "fully signed".
+//
 // That last rule is a deliberate reading of an ambiguity in the specification,
 // which asks both that every address entry have a signer for its top-level
 // address and that the delegates arm be signed through the tree. Requiring a
