@@ -42,11 +42,19 @@ func loadVector(t *testing.T, name string) vectorFile {
 	return v
 }
 
-// runCLI drives the dispatcher and captures both streams.
+// runCLI drives the dispatcher and captures both streams. The environment is
+// empty unless a test supplies one with runCLIEnv.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return runCLIEnv(t, nil, args...)
+}
+
+// runCLIEnv drives the dispatcher with a fake environment, so no test ever
+// mutates the real one or leaves a seed in it.
+func runCLIEnv(t *testing.T, env map[string]string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	err = run(args, &out, &errOut)
+	err = run(args, &out, &errOut, func(key string) string { return env[key] })
 	return out.String(), errOut.String(), err
 }
 
@@ -227,4 +235,21 @@ func sourceAccountEntryFromVector(t *testing.T) string {
 		t.Fatalf("encoding: %v", err)
 	}
 	return encoded
+}
+
+// loadFullVector returns a vector's recorded signed entry.
+func loadFullVector(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join("..", "..", "testdata", "vectors", name+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	var v struct {
+		SignedEntryXDR string `json:"signed_entry_xdr"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("decoding %s: %v", path, err)
+	}
+	return v.SignedEntryXDR
 }

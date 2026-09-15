@@ -28,19 +28,23 @@ usage:
 
 commands:
   payload     print the signing preimage and payload hash for an entry
+  sign        sign an entry with a seed read from an environment variable
 
 run "soroauth <command> -h" for the flags of a command.
 `
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "soroauth: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 // run holds the dispatch so tests can drive it without touching the process.
-func run(args []string, stdout, stderr io.Writer) error {
+// getenv is injected for the same reason: sign reads its seed from the
+// environment, and a test must be able to supply one without mutating the real
+// environment of the test binary.
+func run(args []string, stdout, stderr io.Writer, getenv func(string) string) error {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return errors.New("no command given")
@@ -49,6 +53,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "payload":
 		return runPayload(args[1:], stdout, stderr)
+	case "sign":
+		return runSign(args[1:], stdout, stderr, getenv)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return nil
