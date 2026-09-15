@@ -116,6 +116,8 @@ func newHarness(t *testing.T) *harness {
 	t.Logf("protocol version: %d", ledger.ProtocolVersion)
 	t.Logf("latest ledger:    %d", ledger.Sequence)
 
+	noteRun(network.Passphrase, url, ledger.ProtocolVersion)
+
 	return &harness{
 		client:          client,
 		url:             url,
@@ -244,6 +246,27 @@ func (h *harness) assemble(
 	sim rpc.SimulateTransactionResponse,
 ) *txnbuild.Transaction {
 	t.Helper()
+	return h.assembleWithHeadroom(t, source, op, sim, 1)
+}
+
+// assembleWithHeadroom is assemble with the instruction budget and resource fee
+// multiplied.
+//
+// It exists for the scenarios that are meant to be rejected on-chain. Those
+// cannot use an enforcing simulation to size their resources — that pass fails
+// locally for the very reason under test — so their resources come from the
+// recording pass, which never executed the account contract's __check_auth and
+// therefore under-counts. Submitting that way produces a transaction that runs
+// out of instructions before it reaches the check, and fails for a reason that
+// has nothing to do with what the scenario is proving.
+func (h *harness) assembleWithHeadroom(
+	t *testing.T,
+	source txnbuild.Account,
+	op txnbuild.InvokeHostFunction,
+	sim rpc.SimulateTransactionResponse,
+	headroom uint32,
+) *txnbuild.Transaction {
+	t.Helper()
 
 	var sorobanData xdr.SorobanTransactionData
 	if err := xdr.SafeUnmarshalBase64(sim.TransactionDataXDR, &sorobanData); err != nil {
@@ -253,6 +276,11 @@ func (h *harness) assemble(
 	// than whatever the data happens to carry, and pad it, since the enforcing
 	// pass runs against a slightly later ledger state.
 	sorobanData.ResourceFee = xdr.Int64(sim.MinResourceFee) + 100_000
+
+	if headroom > 1 {
+		sorobanData.Resources.Instructions *= xdr.Uint32(headroom)
+		sorobanData.ResourceFee *= xdr.Int64(headroom)
+	}
 
 	op.Ext = xdr.TransactionExt{V: 1, SorobanData: &sorobanData}
 
@@ -287,11 +315,12 @@ func (h *harness) build(t *testing.T, source txnbuild.Account, op txnbuild.Invok
 
 // submission is the outcome of sending a transaction.
 type submission struct {
-	Hash     string
-	Ledger   uint32
-	Arm      string
-	Status   string
-	RawError string
+	Hash        string
+	Ledger      uint32
+	Arm         string
+	Status      string
+	RawError    string
+	Diagnostics []string
 }
 
 // send submits a signed transaction and polls until it resolves. It does not
@@ -320,6 +349,7 @@ func (h *harness) send(t *testing.T, tx *txnbuild.Transaction) submission {
 	result := submission{Hash: sent.Hash, Arm: arm, Status: sent.Status}
 	if sent.Status == stellarcore.TXStatusError {
 		result.RawError = describeFailure(sent.ErrorResultXDR, sent.DiagnosticEventsXDR)
+		result.Diagnostics = sent.DiagnosticEventsXDR
 		return result
 	}
 
@@ -332,6 +362,7 @@ func (h *harness) send(t *testing.T, tx *txnbuild.Transaction) submission {
 	result.Ledger = polled.Ledger
 	if polled.Status != rpc.TransactionStatusSuccess {
 		result.RawError = describeFailure(polled.ResultXDR, polled.DiagnosticEventsXDR)
+		result.Diagnostics = polled.DiagnosticEventsXDR
 	}
 	return result
 }
@@ -424,4 +455,35 @@ func describeFailure(resultXDR string, diagnosticsXDR []string) string {
 	}
 
 	return out.String()
+}
+
+// contractErrorCodes returns every contract error code the host reported in a
+// set of diagnostic events.
+//
+// This exists because a rejection test can pass for entirely the wrong reason.
+// Scenario E once "passed" while the transaction was actually failing on its
+// instruction budget, never reaching the account contract at all. Asserting the
+// specific code is what makes the scenario prove what it claims.
+func contractErrorCodes(t *testing.T, diagnosticsXDR []string) []uint32 {
+	t.Helper()
+
+	var codes []uint32
+	for _, event := range diagnosticsXDR {
+		var decoded xdr.DiagnosticEvent
+		if err := xdr.SafeUnmarshalBase64(event, &decoded); err != nil {
+			continue
+		}
+		for _, topic := range decoded.Event.Body.V0.Topics {
+			if topic.Type != xdr.ScValTypeScvError || topic.Error == nil {
+				continue
+			}
+			if topic.Error.Type != xdr.ScErrorTypeSceContract {
+				continue
+			}
+			if topic.Error.ContractCode != nil {
+				codes = append(codes, uint32(*topic.Error.ContractCode))
+			}
+		}
+	}
+	return codes
 }
