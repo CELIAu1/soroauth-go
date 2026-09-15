@@ -1,0 +1,17 @@
+{
+  "name": "v2_create_contract",
+  "sdk": "@stellar/stellar-sdk@17.1.0",
+  "network_passphrase": "Test SDF Network ; September 2015",
+  "valid_until_ledger": 1234567,
+  "unsigned_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8p//////////wAAAAAAAAAQAAAAAQAAAAAAAAABAAAAAAAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8pWvoCdGinACXPAV9eMF+WRQgHRVLpb0UKoB7Pzl3TvugAAAAAu2I01hzOTZhiL7pFJXTFWW9t7fApEb0dc2AE30y09vgAAAAA=",
+  "delegates": [],
+  "steps": [
+    {
+      "signer_label": "soroauth-vector-signer-1",
+      "for_address": null
+    }
+  ],
+  "preimage_xdr": "AAAACs7gMC1ZhE0yvcqRXIID3USzP7t+3BkFHqN6vt8o7NRyf/////////8AEtaHAAAAAAAAAAC3ttgpLeEoMHsDDzKQs9+QfuQm1xfY5ZAynak8M6h/ygAAAAEAAAAAAAAAAAAAAAC3ttgpLeEoMHsDDzKQs9+QfuQm1xfY5ZAynak8M6h/yla+gJ0aKcAJc8BX14wX5ZFCAdFUulvRQqgHs/OXdO+6AAAAAC7YjTWHM5NmGIvukUldMVZb23t8CkRvR1zYATfTLT2+AAAAAA==",
+  "payload_hex": "40d0361302a0722d33037d9d388f68e9930be349a01634bea2ad85d5c241d1e6",
+  "signed_entry_xdr": "AAAAAgAAAAAAAAAAt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8p//////////wAS1ocAAAAQAAAAAQAAAAEAAAARAAAAAQAAAAIAAAAPAAAACnB1YmxpY19rZXkAAAAAAA0AAAAgt7bYKS3hKDB7Aw8ykLPfkH7kJtcX2OWQMp2pPDOof8oAAAAPAAAACXNpZ25hdHVyZQAAAAAAAA0AAABAn72xV+cKk1fM7LV1fzJa5UobPmDFuDJYifjAvztLgVPzNpMXa3hdRSgxzuigiz5D7Fva30Qc61igtuWktivxAgAAAAEAAAAAAAAAAAAAAAC3ttgpLeEoMHsDDzKQs9+QfuQm1xfY5ZAynak8M6h/yla+gJ0aKcAJc8BX14wX5ZFCAdFUulvRQqgHs/OXdO+6AAAAAC7YjTWHM5NmGIvukUldMVZb23t8CkRvR1zYATfTLT2+AAAAAA=="
+}
