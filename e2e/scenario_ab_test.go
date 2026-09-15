@@ -209,3 +209,56 @@ func TestScenarioB(t *testing.T) {
 		t.Errorf("submitted envelope carried arm %q, want the address_v2 arm", result.Arm)
 	}
 }
+
+// runTransferExpectingFailure drives the same flow as runTransfer but is meant
+// for cases the host should reject: an under-signed multisig account, or a
+// delegate the account does not recognise.
+//
+// It deliberately skips the enforcing simulation. That pass would fail locally
+// for exactly the reason under test, and failing there would prove only that
+// simulation agrees — the point is to get the transaction in front of the real
+// host and see it refused there, after fees. Resources come from the recording
+// pass instead.
+func runTransferExpectingFailure(
+	t *testing.T,
+	h *harness,
+	payer *keypair.Full,
+	op txnbuild.InvokeHostFunction,
+	signers []soroauth.Signer,
+) submission {
+	t.Helper()
+
+	recordTx := h.build(t, h.account(t, payer.Address()), op)
+	recorded := h.simulate(t, recordTx, rpc.AuthModeRecord, true)
+
+	validUntil, err := soroauth.ExpirationAfter(h.latestLedger(t), 1000)
+	if err != nil {
+		t.Fatalf("computing the expiration ledger: %v", err)
+	}
+
+	if len(recorded.Results) != 1 || recorded.Results[0].AuthXDR == nil {
+		t.Fatal("simulation recorded no authorization entries")
+	}
+	entries := make([]xdr.SorobanAuthorizationEntry, 0, len(*recorded.Results[0].AuthXDR))
+	for i, encoded := range *recorded.Results[0].AuthXDR {
+		var entry xdr.SorobanAuthorizationEntry
+		if err := xdr.SafeUnmarshalBase64(encoded, &entry); err != nil {
+			t.Fatalf("decoding recorded auth entry %d: %v", i, err)
+		}
+		entries = append(entries, entry)
+	}
+
+	signedEntries, err := soroauth.AuthorizeAll(context.Background(), entries, signers, validUntil, h.passphrase)
+	if err != nil {
+		t.Fatalf("AuthorizeAll: %v", err)
+	}
+
+	op.Auth = signedEntries
+	finalTx := h.assemble(t, h.account(t, payer.Address()), op, recorded)
+	finalTx, err = finalTx.Sign(h.passphrase, payer)
+	if err != nil {
+		t.Fatalf("signing the envelope as the payer: %v", err)
+	}
+
+	return h.send(t, finalTx)
+}

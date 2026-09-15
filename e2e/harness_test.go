@@ -366,6 +366,18 @@ func credentialArmOf(t *testing.T, envelopeBase64 string) string {
 	return strings.Join(arms, ", ")
 }
 
+// isCoreMetricsEvent reports whether a diagnostic is one of the host's
+// per-invocation performance counters.
+func isCoreMetricsEvent(event xdr.DiagnosticEvent) bool {
+	topics := event.Event.Body.V0.Topics
+	if len(topics) == 0 {
+		return false
+	}
+	return topics[0].Type == xdr.ScValTypeScvSymbol &&
+		topics[0].Sym != nil &&
+		string(*topics[0].Sym) == "core_metrics"
+}
+
 // describeFailure renders a failure exactly as the host reported it: the raw
 // TransactionResult XDR, its decoded form, and every diagnostic event. Nothing
 // is paraphrased — for scenario E the contract's own error code lives in the
@@ -385,10 +397,19 @@ func describeFailure(resultXDR string, diagnosticsXDR []string) string {
 		}
 	}
 
+	metrics := 0
 	for i, event := range diagnosticsXDR {
 		var decoded xdr.DiagnosticEvent
 		if err := xdr.SafeUnmarshalBase64(event, &decoded); err != nil {
 			out.WriteString(fmt.Sprintf("\ndiagnostic %d (undecodable): %s", i, event))
+			continue
+		}
+		// The host emits a long tail of core_metrics events on every
+		// invocation. They are performance counters, not errors, and they bury
+		// the one event that matters. They are counted rather than printed;
+		// nothing else is filtered and nothing is reworded.
+		if isCoreMetricsEvent(decoded) {
+			metrics++
 			continue
 		}
 		encoded, err := json.Marshal(decoded)
@@ -397,6 +418,9 @@ func describeFailure(resultXDR string, diagnosticsXDR []string) string {
 			continue
 		}
 		out.WriteString(fmt.Sprintf("\ndiagnostic %d: %s", i, string(encoded)))
+	}
+	if metrics > 0 {
+		out.WriteString(fmt.Sprintf("\n(%d core_metrics diagnostic events omitted)", metrics))
 	}
 
 	return out.String()
