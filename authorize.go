@@ -83,28 +83,64 @@ func addressBytes(a xdr.ScAddress) ([]byte, error) {
 	return encoded, nil
 }
 
-// matchingSignatures returns pointers to the signature field of every
-// credential node in entry whose address equals target.
+// credentialNode is one signature-bearing node of an entry: the XDR encoding
+// of the address it belongs to, and a pointer to the signature field itself.
+type credentialNode struct {
+	encoded   []byte
+	signature *xdr.ScVal
+}
+
+// delegateNodesOf flattens a delegates array and everything nested under it.
+//
+// Under CAP-71-01 a delegate may itself delegate, to any depth, and every one
+// of those nodes signs the same payload. So a signer's address can legitimately
+// appear at several depths at once, and all of them must be filled.
+func delegateNodesOf(nodes []xdr.SorobanDelegateSignature) ([]credentialNode, error) {
+	var out []credentialNode
+	for i := range nodes {
+		encoded, err := addressBytes(nodes[i].Address)
+		if err != nil {
+			return nil, err
+		}
+		// &nodes[i].Signature points into the caller's slice, which is the
+		// entry being filled in; the slice is never regrown here.
+		out = append(out, credentialNode{encoded: encoded, signature: &nodes[i].Signature})
+
+		nested, err := delegateNodesOf(nodes[i].NestedDelegates)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, nested...)
+	}
+	return out, nil
+}
+
+// credentialNodes returns every signature-bearing node in entry: the top-level
+// node always, plus every delegate at every depth for the delegates arm.
 //
 // The pointers are into entry, so writing through them fills the entry in
 // place; callers pass a copy they own.
-func matchingSignatures(entry *xdr.SorobanAuthorizationEntry, target []byte) ([]*xdr.ScVal, error) {
+func credentialNodes(entry *xdr.SorobanAuthorizationEntry) ([]credentialNode, error) {
 	credentials, err := addressCredentials(entry.Credentials)
 	if err != nil {
 		return nil, err
 	}
 
-	var matches []*xdr.ScVal
-
 	topLevel, err := addressBytes(credentials.Address)
 	if err != nil {
 		return nil, err
 	}
-	if bytes.Equal(topLevel, target) {
-		matches = append(matches, &credentials.Signature)
+	nodes := []credentialNode{{encoded: topLevel, signature: &credentials.Signature}}
+
+	if entry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddressWithDelegates {
+		delegates, err := delegateNodesOf(entry.Credentials.AddressWithDelegates.Delegates)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, delegates...)
 	}
 
-	return matches, nil
+	return nodes, nil
 }
 
 // AuthorizeEntry signs entry and returns a signed copy, leaving entry
@@ -193,13 +229,57 @@ func AuthorizeEntry(
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
 	}
 
-	matches, err := matchingSignatures(&signed, targetEncoded)
+	existingCredentials, err := addressCredentials(signed.Credentials)
 	if err != nil {
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
+	}
+
+	isDelegates := signed.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddressWithDelegates
+
+	// A delegates entry whose arrays are mis-ordered is rejected by the host,
+	// so it is checked before a signature exists rather than after fees are
+	// paid (CAP-71-01).
+	if isDelegates {
+		if err := ValidateDelegateOrder(signed); err != nil {
+			return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
+		}
+	}
+
+	nodes, err := credentialNodes(&signed)
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
+	}
+
+	var matches []*xdr.ScVal
+	for _, node := range nodes {
+		if bytes.Equal(node.encoded, targetEncoded) {
+			matches = append(matches, node.signature)
+		}
 	}
 	if len(matches) == 0 {
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
 			"soroauth: authorize entry: %s: %w", target, ErrNoMatchingCredentialNode)
+	}
+
+	// In a delegates entry every signature-bearing node commits to one shared
+	// payload that includes the expiration ledger (CAP-71-01). So once any
+	// node is signed, the expiration is fixed: signing another node at a
+	// different expiration would produce an entry whose signatures disagree
+	// about what they authorized, and the host would reject it. AllowResign
+	// does not lift this, because the damage is to the other nodes, not this
+	// one.
+	if isDelegates {
+		stored := uint32(existingCredentials.SignatureExpirationLedger)
+		if stored != validUntilLedger {
+			for _, node := range nodes {
+				if isSigned(*node.signature) {
+					return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
+						"soroauth: authorize entry: the entry already carries signatures over expiration %d, "+
+							"but %d was requested: %w",
+						stored, validUntilLedger, ErrInvalidExpiration)
+				}
+			}
+		}
 	}
 
 	// Checked before signing rather than after, so a remote signer is never
@@ -229,11 +309,7 @@ func AuthorizeEntry(
 
 	// The expiration written into the credentials must be the one that was
 	// signed over, or the host recomputes a different payload and rejects it.
-	credentials, err := addressCredentials(signed.Credentials)
-	if err != nil {
-		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
-	}
-	credentials.SignatureExpirationLedger = xdr.Uint32(validUntilLedger)
+	existingCredentials.SignatureExpirationLedger = xdr.Uint32(validUntilLedger)
 
 	for _, match := range matches {
 		*match = signature

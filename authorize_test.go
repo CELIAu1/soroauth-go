@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
@@ -388,4 +389,299 @@ func TestAuthorizeEntryRejects(t *testing.T) {
 			}
 		})
 	}
+}
+
+// delegatesFixture builds a signed-nothing delegates entry whose tree is
+//
+//	account
+//	├── delegate-1
+//	│   └── delegate-nested-1
+//	└── delegate-2
+func delegatesFixture(t *testing.T) xdr.SorobanAuthorizationEntry {
+	t.Helper()
+	base := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	wrapped, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+		{
+			Address: testKeypair(t, "soroauth-delegate-1").Address(),
+			Nested:  []Delegate{{Address: testKeypair(t, "soroauth-delegate-nested-1").Address()}},
+		},
+		{Address: testKeypair(t, "soroauth-delegate-2").Address()},
+	}, nil)
+	if err != nil {
+		t.Fatalf("building the delegates fixture: %v", err)
+	}
+	return wrapped
+}
+
+// signatureAt walks to a node by address and returns its signature.
+func signatureAt(t *testing.T, entry xdr.SorobanAuthorizationEntry, address string) []xdr.ScVal {
+	t.Helper()
+	parsed, err := ParseAddress(address)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", address, err)
+	}
+	want, err := addressBytes(parsed)
+	if err != nil {
+		t.Fatalf("encoding %q: %v", address, err)
+	}
+
+	copied := entry
+	nodes, err := credentialNodes(&copied)
+	if err != nil {
+		t.Fatalf("walking the entry: %v", err)
+	}
+
+	var found []xdr.ScVal
+	for _, node := range nodes {
+		if bytes.Equal(node.encoded, want) {
+			found = append(found, *node.signature)
+		}
+	}
+	return found
+}
+
+// TestAuthorizeEntrySignsNestedDelegates covers the recursion: a delegate two
+// levels down is reachable by ForAddress, and the signature it gets verifies
+// against the one payload the whole tree shares.
+func TestAuthorizeEntrySignsNestedDelegates(t *testing.T) {
+	entry := delegatesFixture(t)
+
+	targets := []string{
+		testKeypair(t, "soroauth-preimage-signer").Address(),   // the account itself
+		testKeypair(t, "soroauth-delegate-1").Address(),        // a top-level delegate
+		testKeypair(t, "soroauth-delegate-nested-1").Address(), // one level deeper
+		testKeypair(t, "soroauth-delegate-2").Address(),        // the other branch
+	}
+
+	// The payload every node signs, computed once from the unsigned entry.
+	preimage, err := Preimage(entry, testValidUntilLedger, network.TestNetworkPassphrase)
+	if err != nil {
+		t.Fatalf("building the shared preimage: %v", err)
+	}
+	payload, err := Payload(preimage)
+	if err != nil {
+		t.Fatalf("hashing the shared preimage: %v", err)
+	}
+
+	signed := entry
+	for _, address := range targets {
+		signed, err = AuthorizeEntry(context.Background(), signed,
+			NewEd25519Signer(keypairForAddress(t, address)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(address))
+		if err != nil {
+			t.Fatalf("signing for %s returned an unexpected error: %v", address, err)
+		}
+	}
+
+	for _, address := range targets {
+		found := signatureAt(t, signed, address)
+		if len(found) != 1 {
+			t.Fatalf("%s: found %d nodes, want 1", address, len(found))
+		}
+		parts := decodeAccountSignature(t, found[0])
+		if len(parts) != 1 {
+			t.Fatalf("%s: got %d signatures in the node, want 1", address, len(parts))
+		}
+		if err := keypairForAddress(t, address).Verify(payload[:], parts[0].signature); err != nil {
+			t.Errorf("%s: signature does not verify against the shared payload: %v", address, err)
+		}
+	}
+
+	if _, err := signed.MarshalBinary(); err != nil {
+		t.Fatalf("the fully signed entry does not marshal: %v", err)
+	}
+}
+
+// TestAuthorizeEntrySignsOneAddressAtTwoLevels is the CAP-71-01 case where the
+// same address appears at two depths: a single call must fill both, because
+// both nodes commit to the same payload.
+func TestAuthorizeEntrySignsOneAddressAtTwoLevels(t *testing.T) {
+	base := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	shared := testKeypair(t, "soroauth-delegate-1").Address()
+	other := testKeypair(t, "soroauth-delegate-2").Address()
+
+	entry, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+		{Address: shared},
+		{Address: other, Nested: []Delegate{{Address: shared}}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("building the entry: %v", err)
+	}
+
+	if got := signatureAt(t, entry, shared); len(got) != 2 {
+		t.Fatalf("the fixture has %d nodes for the shared address, want 2", len(got))
+	}
+
+	signed, err := AuthorizeEntry(context.Background(), entry,
+		NewEd25519Signer(keypairForAddress(t, shared)),
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(shared))
+	if err != nil {
+		t.Fatalf("AuthorizeEntry returned an unexpected error: %v", err)
+	}
+
+	found := signatureAt(t, signed, shared)
+	if len(found) != 2 {
+		t.Fatalf("found %d nodes for the shared address, want 2", len(found))
+	}
+	for i, signature := range found {
+		if !isSigned(signature) {
+			t.Errorf("node %d was left unsigned by the single call", i)
+		}
+	}
+
+	// Both nodes must carry identical bytes, since both signed one payload.
+	first, err := found[0].MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshalling: %v", err)
+	}
+	second, err := found[1].MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshalling: %v", err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Error("the two nodes for one address carry different signatures")
+	}
+
+	// The other delegate must be untouched.
+	if got := signatureAt(t, signed, other); len(got) != 1 || isSigned(got[0]) {
+		t.Error("signing the shared address also wrote to an unrelated delegate")
+	}
+}
+
+func TestAuthorizeEntryDelegatesZeroMatch(t *testing.T) {
+	entry := delegatesFixture(t)
+	stranger := testKeypair(t, "soroauth-authorize-stranger").Address()
+
+	got, err := AuthorizeEntry(context.Background(), entry,
+		NewEd25519Signer(keypairForAddress(t, stranger)),
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(stranger))
+	if err == nil {
+		t.Fatalf("AuthorizeEntry signed for an address outside the tree, returning %+v", got)
+	}
+	if !errors.Is(err, ErrNoMatchingCredentialNode) {
+		t.Errorf("error %q does not match ErrNoMatchingCredentialNode", err)
+	}
+}
+
+// TestAuthorizeEntryDelegatesExpirationGuard is the §5.4 rule that AllowResign
+// deliberately does not lift: once any node in a delegates entry is signed, the
+// expiration is fixed, because every node commits to it.
+func TestAuthorizeEntryDelegatesExpirationGuard(t *testing.T) {
+	entry := delegatesFixture(t)
+	first := testKeypair(t, "soroauth-delegate-1").Address()
+	second := testKeypair(t, "soroauth-delegate-2").Address()
+
+	partly, err := AuthorizeEntry(context.Background(), entry,
+		NewEd25519Signer(keypairForAddress(t, first)),
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(first))
+	if err != nil {
+		t.Fatalf("the first signature returned an unexpected error: %v", err)
+	}
+
+	t.Run("a different expiration is refused", func(t *testing.T) {
+		got, err := AuthorizeEntry(context.Background(), partly,
+			NewEd25519Signer(keypairForAddress(t, second)),
+			testValidUntilLedger+1, network.TestNetworkPassphrase, ForAddress(second))
+		if err == nil {
+			t.Fatalf("AuthorizeEntry invalidated the existing signature, returning %+v", got)
+		}
+		if !errors.Is(err, ErrInvalidExpiration) {
+			t.Errorf("error %q does not match ErrInvalidExpiration", err)
+		}
+	})
+
+	t.Run("AllowResign does not lift it", func(t *testing.T) {
+		got, err := AuthorizeEntry(context.Background(), partly,
+			NewEd25519Signer(keypairForAddress(t, second)),
+			testValidUntilLedger+1, network.TestNetworkPassphrase, ForAddress(second), AllowResign())
+		if err == nil {
+			t.Fatalf("AllowResign lifted the expiration guard, returning %+v", got)
+		}
+		if !errors.Is(err, ErrInvalidExpiration) {
+			t.Errorf("error %q does not match ErrInvalidExpiration", err)
+		}
+	})
+
+	t.Run("the same expiration is allowed", func(t *testing.T) {
+		signed, err := AuthorizeEntry(context.Background(), partly,
+			NewEd25519Signer(keypairForAddress(t, second)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(second))
+		if err != nil {
+			t.Fatalf("AuthorizeEntry returned an unexpected error: %v", err)
+		}
+		if got := signatureAt(t, signed, first); len(got) != 1 || !isSigned(got[0]) {
+			t.Error("the first signature was lost")
+		}
+		if got := signatureAt(t, signed, second); len(got) != 1 || !isSigned(got[0]) {
+			t.Error("the second signature was not written")
+		}
+	})
+}
+
+// TestAuthorizeEntryValidatesDelegateOrderBeforeSigning proves the check runs
+// before the signer is called, not after: a mis-ordered entry must never reach
+// a hardware signer or a user prompt.
+func TestAuthorizeEntryValidatesDelegateOrderBeforeSigning(t *testing.T) {
+	entry := delegatesFixture(t)
+
+	nodes := entry.Credentials.AddressWithDelegates.Delegates
+	if len(nodes) != 2 {
+		t.Fatalf("the fixture has %d top-level delegates, want 2", len(nodes))
+	}
+	nodes[0], nodes[1] = nodes[1], nodes[0]
+
+	address := testKeypair(t, "soroauth-delegate-1").Address()
+	signer := SignerFunc(address, func(context.Context, xdr.HashIdPreimage, [32]byte) (xdr.ScVal, error) {
+		t.Error("the signer was called for an entry the host would reject")
+		return xdr.ScVal{}, nil
+	})
+
+	got, err := AuthorizeEntry(context.Background(), entry, signer,
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(address))
+	if err == nil {
+		t.Fatalf("AuthorizeEntry signed a mis-ordered entry, returning %+v", got)
+	}
+	if !strings.Contains(err.Error(), "ascending address order") {
+		t.Errorf("error %q does not explain the ordering rule", err)
+	}
+}
+
+// TestAuthorizeEntryDoesNotCallTheSignerWhenNothingMatches is the behaviour
+// noted at CP1 and documented in the README: a target that matches no node
+// fails before any signing work happens.
+func TestAuthorizeEntryDoesNotCallTheSignerWhenNothingMatches(t *testing.T) {
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	stranger := testKeypair(t, "soroauth-authorize-stranger").Address()
+
+	signer := SignerFunc(stranger, func(context.Context, xdr.HashIdPreimage, [32]byte) (xdr.ScVal, error) {
+		t.Error("the signer was called even though no node matched")
+		return xdr.ScVal{}, nil
+	})
+
+	if _, err := AuthorizeEntry(context.Background(), entry, signer,
+		testValidUntilLedger, network.TestNetworkPassphrase); !errors.Is(err, ErrNoMatchingCredentialNode) {
+		t.Errorf("error %v does not match ErrNoMatchingCredentialNode", err)
+	}
+}
+
+// keypairForAddress recovers the deterministic test keypair behind an address.
+func keypairForAddress(t *testing.T, address string) *keypair.Full {
+	t.Helper()
+	for _, label := range []string{
+		"soroauth-preimage-signer",
+		"soroauth-preimage-delegate",
+		"soroauth-authorize-stranger",
+		"soroauth-delegate-1",
+		"soroauth-delegate-2",
+		"soroauth-delegate-3",
+		"soroauth-delegate-nested-1",
+		"soroauth-delegate-nested-2",
+	} {
+		kp := testKeypair(t, label)
+		if kp.Address() == address {
+			return kp
+		}
+	}
+	t.Fatalf("no test keypair matches %s", address)
+	return nil
 }
