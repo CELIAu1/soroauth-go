@@ -1,0 +1,391 @@
+package soroauth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/xdr"
+)
+
+func TestInspectReportsTheArm(t *testing.T) {
+	tests := []struct {
+		name      string
+		armType   xdr.SorobanCredentialsType
+		wantType  string
+		wantBound bool
+		wantAddr  bool
+	}{
+		{
+			name:      "source account",
+			armType:   xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+			wantType:  CredentialTypeSourceAccount,
+			wantBound: false,
+			wantAddr:  false,
+		},
+		{
+			name:      "legacy address",
+			armType:   xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+			wantType:  CredentialTypeAddress,
+			wantBound: false,
+			wantAddr:  true,
+		},
+		{
+			name:      "address v2",
+			armType:   xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+			wantType:  CredentialTypeAddressV2,
+			wantBound: true,
+			wantAddr:  true,
+		},
+		{
+			name:      "address with delegates",
+			armType:   xdr.SorobanCredentialsTypeSorobanCredentialsAddressWithDelegates,
+			wantType:  CredentialTypeAddressWithDelegates,
+			wantBound: true,
+			wantAddr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, err := Inspect(entryForArm(t, tt.armType, 42))
+			if err != nil {
+				t.Fatalf("Inspect returned an unexpected error: %v", err)
+			}
+			if info.CredentialType != tt.wantType {
+				t.Errorf("credential type is %q, want %q", info.CredentialType, tt.wantType)
+			}
+			if info.AddressBound != tt.wantBound {
+				t.Errorf("address_bound is %v, want %v", info.AddressBound, tt.wantBound)
+			}
+			if tt.wantAddr {
+				if info.Address == "" {
+					t.Error("no address was reported")
+				}
+				if info.Nonce != 42 {
+					t.Errorf("nonce is %d, want 42", info.Nonce)
+				}
+			} else {
+				if info.Address != "" {
+					t.Errorf("a source-account entry reported the address %q", info.Address)
+				}
+				if info.Nonce != 0 {
+					t.Errorf("a source-account entry reported the nonce %d", info.Nonce)
+				}
+			}
+		})
+	}
+}
+
+func TestInspectReportsTheInvocationTree(t *testing.T) {
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+
+	info, err := Inspect(entry)
+	if err != nil {
+		t.Fatalf("Inspect returned an unexpected error: %v", err)
+	}
+
+	wantContract, err := FormatAddress(entry.RootInvocation.Function.ContractFn.ContractAddress)
+	if err != nil {
+		t.Fatalf("formatting the contract address: %v", err)
+	}
+	if info.RootContract != wantContract {
+		t.Errorf("root contract is %q, want %q", info.RootContract, wantContract)
+	}
+	if info.RootFunction != "transfer" {
+		t.Errorf("root function is %q, want %q", info.RootFunction, "transfer")
+	}
+	// testInvocation has exactly one sub-invocation, which has none of its own.
+	if info.SubInvocations != 1 {
+		t.Errorf("sub_invocations is %d, want 1", info.SubInvocations)
+	}
+}
+
+// TestInspectCountsSubInvocationsRecursively checks the count is over the whole
+// tree, not just the root's direct children.
+func TestInspectCountsSubInvocationsRecursively(t *testing.T) {
+	leaf := func(name string) xdr.SorobanAuthorizedInvocation {
+		return xdr.SorobanAuthorizedInvocation{
+			Function: xdr.SorobanAuthorizedFunction{
+				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+				ContractFn: &xdr.InvokeContractArgs{
+					ContractAddress: mustParse(t, testContractAddress(t, "soroauth-inspect-leaf")),
+					FunctionName:    xdr.ScSymbol(name),
+				},
+			},
+		}
+	}
+
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	// root
+	// ├── a
+	// │   ├── a1
+	// │   └── a2
+	// └── b
+	//     └── b1
+	//         └── b1x
+	branchA := leaf("a")
+	branchA.SubInvocations = []xdr.SorobanAuthorizedInvocation{leaf("a1"), leaf("a2")}
+	deep := leaf("b1")
+	deep.SubInvocations = []xdr.SorobanAuthorizedInvocation{leaf("b1x")}
+	branchB := leaf("b")
+	branchB.SubInvocations = []xdr.SorobanAuthorizedInvocation{deep}
+	entry.RootInvocation.SubInvocations = []xdr.SorobanAuthorizedInvocation{branchA, branchB}
+
+	info, err := Inspect(entry)
+	if err != nil {
+		t.Fatalf("Inspect returned an unexpected error: %v", err)
+	}
+	if info.SubInvocations != 6 {
+		t.Errorf("sub_invocations is %d, want 6 (a, a1, a2, b, b1, b1x)", info.SubInvocations)
+	}
+}
+
+func TestInspectReportsCreateContractWithoutAFunction(t *testing.T) {
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	entry.RootInvocation = xdr.SorobanAuthorizedInvocation{
+		Function: xdr.SorobanAuthorizedFunction{
+			Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+			CreateContractHostFn: &xdr.CreateContractArgs{
+				ContractIdPreimage: xdr.ContractIdPreimage{
+					Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+					FromAddress: &xdr.ContractIdPreimageFromAddress{
+						Address: mustParse(t, testKeypair(t, "soroauth-inspect-deployer").Address()),
+					},
+				},
+				Executable: xdr.ContractExecutable{
+					Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+					WasmHash: &xdr.Hash{1, 2, 3},
+				},
+			},
+		},
+	}
+
+	info, err := Inspect(entry)
+	if err != nil {
+		t.Fatalf("Inspect returned an unexpected error: %v", err)
+	}
+	// A create-contract invocation names no contract and no function, and
+	// inventing one would be worse than reporting nothing.
+	if info.RootContract != "" {
+		t.Errorf("root contract is %q, want empty for a create-contract invocation", info.RootContract)
+	}
+	if info.RootFunction != "" {
+		t.Errorf("root function is %q, want empty for a create-contract invocation", info.RootFunction)
+	}
+	if info.SubInvocations != 0 {
+		t.Errorf("sub_invocations is %d, want 0", info.SubInvocations)
+	}
+}
+
+func TestInspectReportsTheDelegateTree(t *testing.T) {
+	base := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	d1 := testKeypair(t, "soroauth-delegate-1").Address()
+	d2 := testKeypair(t, "soroauth-delegate-2").Address()
+	nested := testKeypair(t, "soroauth-delegate-nested-1").Address()
+
+	entry, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+		{Address: d1, Nested: []Delegate{{Address: nested}}},
+		{Address: d2},
+	}, nil)
+	if err != nil {
+		t.Fatalf("building the entry: %v", err)
+	}
+
+	t.Run("unsigned", func(t *testing.T) {
+		info, err := Inspect(entry)
+		if err != nil {
+			t.Fatalf("Inspect returned an unexpected error: %v", err)
+		}
+		if info.TopLevelSigned {
+			t.Error("top_level_signed is true for a void top-level signature")
+		}
+		if len(info.Delegates) != 2 {
+			t.Fatalf("got %d delegates, want 2", len(info.Delegates))
+		}
+		// Stored order is ascending address order for a valid entry.
+		wantOrder := wantAscending(t, []string{d1, d2})
+		gotOrder := []string{info.Delegates[0].Address, info.Delegates[1].Address}
+		if !reflect.DeepEqual(gotOrder, wantOrder) {
+			t.Errorf("delegate order\n want %v\n  got %v", wantOrder, gotOrder)
+		}
+		for _, node := range info.Delegates {
+			if node.Signed {
+				t.Errorf("%s is reported as signed before anything was signed", node.Address)
+			}
+		}
+
+		var foundNested bool
+		for _, node := range info.Delegates {
+			if len(node.Nested) == 1 {
+				foundNested = true
+				if node.Nested[0].Address != nested {
+					t.Errorf("nested delegate is %q, want %q", node.Nested[0].Address, nested)
+				}
+				if node.Nested[0].Signed {
+					t.Error("the nested delegate is reported as signed")
+				}
+			}
+		}
+		if !foundNested {
+			t.Error("the nested delegate was not reported")
+		}
+	})
+
+	t.Run("after signing one delegate", func(t *testing.T) {
+		signed, err := AuthorizeEntry(context.Background(), entry,
+			NewEd25519Signer(keypairForAddress(t, d2)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(d2))
+		if err != nil {
+			t.Fatalf("signing: %v", err)
+		}
+
+		info, err := Inspect(signed)
+		if err != nil {
+			t.Fatalf("Inspect returned an unexpected error: %v", err)
+		}
+		if info.TopLevelSigned {
+			t.Error("top_level_signed became true after signing only a delegate")
+		}
+		if info.ValidUntilLedger != testValidUntilLedger {
+			t.Errorf("valid_until_ledger is %d, want %d", info.ValidUntilLedger, testValidUntilLedger)
+		}
+
+		signedCount := 0
+		for _, node := range info.Delegates {
+			if node.Signed {
+				signedCount++
+				if node.Address != d2 {
+					t.Errorf("%s is reported as signed, but %s was", node.Address, d2)
+				}
+			}
+		}
+		if signedCount != 1 {
+			t.Errorf("%d delegates are reported as signed, want 1", signedCount)
+		}
+	})
+}
+
+// TestInspectShowsMisorderedDelegates: Inspect reports the stored order rather
+// than tidying it, so a bad entry is visible.
+func TestInspectShowsMisorderedDelegates(t *testing.T) {
+	base := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	entry, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+		{Address: testKeypair(t, "soroauth-delegate-1").Address()},
+		{Address: testKeypair(t, "soroauth-delegate-2").Address()},
+	}, nil)
+	if err != nil {
+		t.Fatalf("building: %v", err)
+	}
+
+	nodes := entry.Credentials.AddressWithDelegates.Delegates
+	nodes[0], nodes[1] = nodes[1], nodes[0]
+
+	info, err := Inspect(entry)
+	if err != nil {
+		t.Fatalf("Inspect returned an unexpected error: %v", err)
+	}
+	stored := []string{info.Delegates[0].Address, info.Delegates[1].Address}
+	sorted := wantAscending(t, stored)
+	if reflect.DeepEqual(stored, sorted) {
+		t.Error("Inspect sorted the delegates instead of reporting them as stored")
+	}
+	if err := ValidateDelegateOrder(entry); err == nil {
+		t.Error("the fixture is not actually mis-ordered")
+	}
+}
+
+func TestInspectSerialisesToJSON(t *testing.T) {
+	base := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	entry, err := WithDelegates(base, testValidUntilLedger,
+		[]Delegate{{Address: testKeypair(t, "soroauth-delegate-1").Address()}}, nil)
+	if err != nil {
+		t.Fatalf("building: %v", err)
+	}
+
+	info, err := Inspect(entry)
+	if err != nil {
+		t.Fatalf("Inspect returned an unexpected error: %v", err)
+	}
+	encoded, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshalling EntryInfo: %v", err)
+	}
+
+	for _, want := range []string{
+		`"credential_type":"address_with_delegates"`,
+		`"address_bound":true`,
+		`"top_level_signed":false`,
+		`"sub_invocations":1`,
+		`"delegates":[`,
+	} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("JSON %s does not contain %s", encoded, want)
+		}
+	}
+}
+
+func TestInspectRejects(t *testing.T) {
+	emptyArm := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	emptyArm.Credentials.AddressV2 = nil
+
+	emptyFn := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 42)
+	emptyFn.RootInvocation.Function.ContractFn = nil
+
+	tests := []struct {
+		name    string
+		entry   xdr.SorobanAuthorizationEntry
+		wantErr error
+		wantMsg string
+	}{
+		{
+			name: "unknown arm",
+			entry: xdr.SorobanAuthorizationEntry{
+				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsType(99)},
+			},
+			wantErr: ErrUnsupportedCredentials,
+		},
+		{
+			name:    "empty address arm",
+			entry:   emptyArm,
+			wantMsg: "address_v2 credentials arm is empty",
+		},
+		{
+			name:    "empty contract_fn arm",
+			entry:   emptyFn,
+			wantMsg: "contract_fn invocation arm is empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Inspect(tt.entry)
+			if err == nil {
+				t.Fatalf("Inspect succeeded, returning %+v", got)
+			}
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Errorf("error %q does not match %q", err, tt.wantErr)
+			}
+			if tt.wantMsg != "" && !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("error %q does not mention %q", err, tt.wantMsg)
+			}
+			if !reflect.DeepEqual(got, EntryInfo{}) {
+				t.Error("Inspect returned info alongside an error")
+			}
+		})
+	}
+}
+
+// mustParse is a test helper for addresses known to be valid.
+func mustParse(t *testing.T, address string) xdr.ScAddress {
+	t.Helper()
+	parsed, err := ParseAddress(address)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", address, err)
+	}
+	return parsed
+}
