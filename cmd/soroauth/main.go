@@ -29,6 +29,7 @@ usage:
 commands:
   payload     print the signing preimage and payload hash for an entry
   sign        sign an entry with a seed read from an environment variable
+  delegates   wrap an entry in a delegated-signer credential
 
 run "soroauth <command> -h" for the flags of a command.
 `
@@ -55,6 +56,8 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) er
 		return runPayload(args[1:], stdout, stderr)
 	case "sign":
 		return runSign(args[1:], stdout, stderr, getenv)
+	case "delegates":
+		return runDelegates(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return nil
