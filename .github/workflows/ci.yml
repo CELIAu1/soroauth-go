@@ -30,3 +30,41 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test ./...
+
+  golden-drift:
+    name: golden vectors are reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # @stellar/stellar-sdk@17.1.0 declares engines node >=22.12.0.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: testdata/gen/package-lock.json
+
+      # npm ci installs exactly the committed lockfile and fails if
+      # package.json and the lockfile disagree, so the reference build cannot
+      # drift without this step noticing.
+      - name: install the pinned reference sdk
+        working-directory: testdata/gen
+        run: npm ci
+
+      - name: regenerate the vectors
+        working-directory: testdata/gen
+        run: node gen.mjs
+
+      # The vectors are generated, committed artefacts. If regenerating them
+      # changes anything, then either someone edited a vector by hand or the
+      # reference implementation moved, and in both cases the committed
+      # evidence no longer says what it claims to.
+      - name: fail if the committed vectors changed
+        run: |
+          if ! git diff --exit-code testdata/vectors; then
+            echo
+            echo "The committed golden vectors differ from freshly generated ones."
+            echo "Vectors are never edited by hand. Regenerate them with:"
+            echo "  cd testdata/gen && npm ci && node gen.mjs"
+            echo "and commit the result, or investigate why the reference output moved."
+            exit 1
+          fi
