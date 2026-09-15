@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Go build output
+/soroauth
+/cmd/soroauth/soroauth
+*.test
+*.out
+
+# Node (golden-vector generator)
+node_modules/
+
+# Rust (e2e test contract)
+target/
