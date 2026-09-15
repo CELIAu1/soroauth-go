@@ -1,0 +1,16 @@
+{
+  "name": "soroauth-vector-gen",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Golden-vector generator for soroauth-go. @stellar/stellar-sdk is the reference implementation the Go library is proven against, byte for byte.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "gen": "node gen.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "17.1.0"
+  }
+}
