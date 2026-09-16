@@ -14,7 +14,7 @@ import (
 // requiredScenarios is the full set §5.10 defines. RESULTS.md is only written
 // when every one of them ran, so the committed file can never be a partial
 // record of a single-scenario run.
-var requiredScenarios = []string{"A", "B", "C", "D", "E"}
+var requiredScenarios = []string{"A", "B", "C", "C-control", "D", "E"}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -59,9 +59,9 @@ func writeResults() {
 	out.WriteString("| ID | Proves | Result | Ledger | Credential arm observed on the submitted envelope |\n")
 	out.WriteString("|----|--------|--------|--------|---------------------------------------------------|\n")
 	for _, r := range results {
-		outcome := "rejected as expected"
-		if r.ID != "E" {
-			outcome = "accepted"
+		outcome := "accepted"
+		if r.ID == "E" || r.ID == "C-control" {
+			outcome = "rejected as expected"
 		}
 		if !r.Succeeded {
 			outcome = "**unexpected outcome**"

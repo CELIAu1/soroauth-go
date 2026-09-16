@@ -126,9 +126,71 @@ func TestScenarioCRejectsASingleSignature(t *testing.T) {
 
 	t.Logf("tx hash:   %s", result.Hash)
 	t.Logf("status:    %s", result.Status)
-	t.Logf("raw error: %s", result.RawError)
+	t.Logf("arm:       %s", result.Arm)
+	t.Logf("RAW ERROR:\n%s", result.RawError)
 
 	if result.Status == rpc.TransactionStatusSuccess {
 		t.Fatal("a single signature met a threshold of 2; the account was not actually multisig")
 	}
+
+	// It is not enough that the transaction failed. It has to have failed
+	// because the signature weight did not meet the threshold — the host's own
+	// check in check_account_authentication — rather than because it ran out
+	// of instructions before that check was reached.
+	//
+	// The host raises ContractError::AuthenticationError, which is 5
+	// (rs-soroban-env builtin_contracts/contract_error.rs:18), with the
+	// message "signature weight is lower than threshold" and the weight and
+	// threshold as arguments
+	// (builtin_contracts/account_contract.rs, check_account_authentication).
+	const (
+		wantMessage       = "signature weight is lower than threshold"
+		wantWeight        = 1
+		wantThreshold     = 2
+		authenticationErr = 5
+	)
+
+	details := hostErrorDetails(t, result.Diagnostics)
+	var matched bool
+	for _, detail := range details {
+		if detail.Message != wantMessage {
+			continue
+		}
+		matched = true
+		if !detail.HasCode || detail.ContractCode != authenticationErr {
+			t.Errorf("the weight error carried contract code %v (present=%v), want %d (ContractError::AuthenticationError)",
+				detail.ContractCode, detail.HasCode, authenticationErr)
+		}
+		if len(detail.Args) != 2 {
+			t.Errorf("the weight error carried args %v, want [weight threshold]", detail.Args)
+			continue
+		}
+		if detail.Args[0] != wantWeight || detail.Args[1] != wantThreshold {
+			t.Errorf("the weight error reports weight %d against threshold %d, want %d and %d",
+				detail.Args[0], detail.Args[1], wantWeight, wantThreshold)
+		}
+	}
+	if !matched {
+		t.Errorf("no diagnostic carried %q; the transaction failed, but not for the reason this control is about.\nHost errors seen: %+v",
+			wantMessage, details)
+	} else {
+		t.Logf("confirmed: ContractError::AuthenticationError (%d), %q, weight %d against threshold %d",
+			authenticationErr, wantMessage, wantWeight, wantThreshold)
+	}
+
+	record(scenarioResult{
+		ID:        "C-control",
+		Name:      "a single signature does not meet a 2-of-2 threshold",
+		Proves:    "Scenario C is not passing by accident: the same account and the same transfer, signed with only one of the two required keys, is refused by the host for insufficient signature weight.",
+		TxHash:    result.Hash,
+		Ledger:    result.Ledger,
+		Arm:       result.Arm,
+		Succeeded: result.Status != rpc.TransactionStatusSuccess,
+		RawError:  result.RawError,
+		Notes: []string{
+			"Account M: master key weight 1, second signer weight 1, medium threshold 2.",
+			"Signed with the master key alone, so the weight is 1 against a threshold of 2.",
+			"Expected host error: ContractError::AuthenticationError (5), \"signature weight is lower than threshold\", args weight=1 threshold=2.",
+		},
+	})
 }

@@ -487,3 +487,82 @@ func contractErrorCodes(t *testing.T, diagnosticsXDR []string) []uint32 {
 	}
 	return codes
 }
+
+// hostErrorDetail is one error diagnostic the host emitted: the error value
+// from the topics, the message string, and any numeric arguments that came
+// with it.
+type hostErrorDetail struct {
+	ErrorType    int32
+	ContractCode uint32
+	HasCode      bool
+	Message      string
+	Args         []uint64
+}
+
+// hostErrorDetails extracts every error diagnostic from a failure.
+//
+// It exists so a rejection test can assert WHY the host refused, not merely
+// that it did. A test that only checks "the transaction failed" passes just as
+// happily when the transaction ran out of instructions and never reached the
+// check under test.
+func hostErrorDetails(t *testing.T, diagnosticsXDR []string) []hostErrorDetail {
+	t.Helper()
+
+	var details []hostErrorDetail
+	for _, event := range diagnosticsXDR {
+		var decoded xdr.DiagnosticEvent
+		if err := xdr.SafeUnmarshalBase64(event, &decoded); err != nil {
+			continue
+		}
+		body := decoded.Event.Body.V0
+
+		var detail hostErrorDetail
+		var sawError bool
+		for _, topic := range body.Topics {
+			if topic.Type == xdr.ScValTypeScvError && topic.Error != nil {
+				sawError = true
+				detail.ErrorType = int32(topic.Error.Type)
+				if topic.Error.ContractCode != nil {
+					detail.ContractCode = uint32(*topic.Error.ContractCode)
+					detail.HasCode = true
+				}
+			}
+		}
+		if !sawError {
+			continue
+		}
+
+		// The data is either a bare message or a vector whose first element is
+		// the message and whose remaining elements are its arguments.
+		collect := func(value xdr.ScVal) {
+			switch value.Type {
+			case xdr.ScValTypeScvString:
+				if value.Str != nil {
+					detail.Message = string(*value.Str)
+				}
+			case xdr.ScValTypeScvU32:
+				if value.U32 != nil {
+					detail.Args = append(detail.Args, uint64(*value.U32))
+				}
+			case xdr.ScValTypeScvU64:
+				if value.U64 != nil {
+					detail.Args = append(detail.Args, uint64(*value.U64))
+				}
+			}
+		}
+
+		switch body.Data.Type {
+		case xdr.ScValTypeScvVec:
+			if body.Data.Vec != nil && *body.Data.Vec != nil {
+				for _, element := range **body.Data.Vec {
+					collect(element)
+				}
+			}
+		default:
+			collect(body.Data)
+		}
+
+		details = append(details, detail)
+	}
+	return details
+}

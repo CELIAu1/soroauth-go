@@ -74,6 +74,20 @@ The credential arm reported for each scenario is read back off the envelope that
 was actually submitted, by decoding it again, rather than assumed from what the
 test meant to build.
 
+## Files
+
+The tests are split by role rather than kept in one file:
+
+| File | Holds |
+|------|-------|
+| `harness_test.go` | Connecting to and verifying the RPC, funding accounts, building, simulating, assembling, submitting and polling; decoding the submitted envelope's credential arm; rendering host failures and extracting their error details. |
+| `transfer_test.go` | The native-SAC `transfer(from, to, amount)` operation builder and small `ScVal`/`ScAddress` helpers. |
+| `scenario_ab_test.go` | Scenarios A and B, plus the two shared runners: `runTransfer` (record, sign, enforce, assemble, submit) and `runTransferExpectingFailure` for runs meant to be rejected. |
+| `scenario_c_test.go` | Scenario C, the multisig account setup, and the single-signature control. |
+| `scenario_de_test.go` | Scenarios D and E and the delegates flow that wraps, signs per address, and submits. |
+| `deploy_test.go` | Uploading the fixture wasm, instantiating it with a constructor argument, and funding a contract with XLM. |
+| `results_test.go` | `TestMain` and the writer that produces `RESULTS.md` from a complete run. |
+
 ## The fixture contract
 
 `contracts/modular-account` is a custom account that carries no signature of its

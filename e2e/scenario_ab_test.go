@@ -254,7 +254,18 @@ func runTransferExpectingFailure(
 	}
 
 	op.Auth = signedEntries
-	finalTx := h.assemble(t, h.account(t, payer.Address()), op, recorded)
+	// Instruction headroom, as on the delegates rejection path: the recording
+	// pass never verified a signature, so its instruction count can be too low
+	// to reach the check the run is about.
+	//
+	// Measured, not assumed: for the classic-account check this helper is used
+	// for, headroom 1 is already sufficient — reverting it still produces
+	// "signature weight is lower than threshold". Verifying a classic account
+	// signature is far cheaper than executing a custom account contract's
+	// __check_auth, which is what exhausted the budget in scenario E. The
+	// headroom is kept as insurance against host costs shifting, but it is not
+	// what makes the control valid. The assertion on the host's error is.
+	finalTx := h.assembleWithHeadroom(t, h.account(t, payer.Address()), op, recorded, 6)
 	finalTx, err = finalTx.Sign(h.passphrase, payer)
 	if err != nil {
 		t.Fatalf("signing the envelope as the payer: %v", err)
