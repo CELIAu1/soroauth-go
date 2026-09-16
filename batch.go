@@ -76,11 +76,26 @@ func signersForEntry(entry xdr.SorobanAuthorizationEntry, signers []Signer) (mat
 // node with no matching signer is left unsigned. AuthorizeAll does not fail for
 // it, because it cannot know whether that delegate's signature was required —
 // a 2-of-3 delegate policy is legitimate, and so is a tree where only one
-// branch needs to sign. But an unsigned G-account delegate node WILL fail
-// on-chain, after fees are paid, because a classic account cannot authenticate
-// with an empty signature. So a caller who is not certain every node needed to
-// be filled should check the per-node Signed flags that Inspect reports before
-// submitting, rather than treating a nil error here as "fully signed".
+// branch needs to sign.
+//
+// When an unsigned node does fail is a protocol question, not a guess. Under
+// CAP-71-01 ("Semantics", the delegate_account_auth function), a delegate node
+// is only exercised if the account's own __check_auth calls
+// delegate_account_auth for that address; the host then calls that delegate's
+// __check_auth with the signature stored on the node. An unsigned node that is
+// never delegated to costs nothing, while an unsigned node that is delegated to
+// hands the delegate an empty signature — which a G-account delegate cannot
+// authenticate with.
+//
+// In practice that second case is the one to expect. The CAP's own guidance on
+// get_delegated_signers_for_current_auth_check says the account contract must
+// check that the signers belong to it "and perform authentication for every one
+// of them via delegate_account_auth", which is what soroban-sdk's delegate_auth
+// documentation describes and what the modular-account fixture in e2e/ does.
+//
+// So unless you know your account's policy, treat an unsigned node as one that
+// will fail: check the per-node Signed flags that Inspect reports before
+// submitting, rather than reading a nil error here as "fully signed".
 //
 // That last rule is a deliberate reading of an ambiguity in the specification,
 // which asks both that every address entry have a signer for its top-level

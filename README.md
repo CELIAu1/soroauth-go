@@ -118,9 +118,17 @@ show exactly that. Replay protection comes from the nonce, which the host
 consumes; this is by design under CAP-71-01, not a defect.
 
 `AuthorizeAll` applies every signer matching any node in the tree. It does not
-fail when a delegate has no signer, because it cannot know the account's policy —
-so check the per-node `Signed` flags from `Inspect` before submitting if you
-need every node filled.
+fail when a delegate has no signer, because it cannot know the account's policy.
+
+An unsigned node fails only if the account's `__check_auth` calls
+`delegate_account_auth` for that address — the host then runs that delegate's
+`__check_auth` with whatever signature the node carries (CAP-71-01,
+*Semantics → `delegate_account_auth` function*), and an empty one is not
+something a G-account delegate can authenticate with. The pattern the CAP
+recommends, and the one soroban-sdk's `delegate_auth` documentation and this
+repo's e2e fixture both follow, delegates to *every* listed signer. So unless
+you know your account's policy, treat an unsigned node as one that will fail:
+check the per-node `Signed` flags from `Inspect` before submitting.
 
 ## Expiration
 
