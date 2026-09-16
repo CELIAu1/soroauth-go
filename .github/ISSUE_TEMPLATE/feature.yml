@@ -1,0 +1,49 @@
+name: Feature request
+description: Something soroauth should be able to do and cannot.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [docs/ISSUE_BACKLOG.md](https://github.com/soroauth/soroauth-go/blob/main/docs/ISSUE_BACKLOG.md)
+        first — a fair amount of known work is already written up there, and
+        adding your use case to an existing entry is more useful than a
+        duplicate.
+
+        Note the explicit non-goals in the package documentation: soroauth is
+        not a transaction builder, an RPC client, a key manager, or a
+        human-readable "what am I signing" explainer.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >
+        The problem, not the solution. What does your application need to
+        achieve that soroauth currently makes hard or impossible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: >
+        A sketch of the API if you have one. If it changes anything that gets
+        signed or submitted, say so explicitly.
+      render: go
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds you have used, and why they are not enough.
+
+  - type: checkboxes
+    id: wire-format
+    attributes:
+      label: Wire format
+      options:
+        - label: >
+            This does not change the bytes soroauth emits, or if it does, I have
+            said which CAP requires the change.

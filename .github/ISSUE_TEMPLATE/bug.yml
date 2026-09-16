@@ -1,0 +1,71 @@
+name: Bug report
+description: Something soroauth does that it should not, or fails to do.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before filing:** if this is a signature-correctness or key-handling
+        issue — a signature over the wrong payload, written to the wrong node,
+        an entry that signs when it should be refused, or a secret reaching any
+        output — please report it privately instead, through
+        [Security Advisories](https://github.com/soroauth/soroauth-go/security/advisories/new).
+        See [SECURITY.md](https://github.com/soroauth/soroauth-go/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did soroauth do, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        A failing test is ideal. Otherwise, the smallest code or CLI invocation
+        that shows it. Base64 XDR of the entry involved is usually the fastest
+        way to make this concrete — but never paste a secret key.
+      render: go
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: soroauth version or commit
+      placeholder: v0.1.0, or a commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Output of `go version`
+      placeholder: go version go1.25.4 darwin/arm64
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - testnet
+        - public
+        - futurenet or standalone
+        - not network-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: The error, as reported
+      description: >
+        Paste it verbatim rather than summarising. If the host rejected a
+        transaction, the raw TransactionResult XDR and diagnostic events are
+        what pin down the cause.
+      render: text
