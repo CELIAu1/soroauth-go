@@ -1,0 +1,200 @@
+# soroauth
+
+soroauth builds, signs and inspects Soroban authorization entries in Go. When a
+contract calls `require_auth()` on an address that is not the transaction's
+source account, the transaction has to carry a signed `SorobanAuthorizationEntry`
+for that address — and the signature is not over the entry, but over a
+`HashIdPreimage` whose shape depends on which credential arm is in use. The Go
+SDK ships all of those XDR types and none of the code that builds or signs those
+preimages. soroauth is that code, for all three address credential arms: legacy
+`SOROBAN_CREDENTIALS_ADDRESS`, CAP-71 `SOROBAN_CREDENTIALS_ADDRESS_V2`, and
+CAP-71 `SOROBAN_CREDENTIALS_ADDRESS_WITH_DELEGATES` including nested delegate
+trees.
+
+## Install
+
+```sh
+go get github.com/soroauth/soroauth-go
+```
+
+The CLI:
+
+```sh
+go install github.com/soroauth/soroauth-go/cmd/soroauth@latest
+```
+
+Requires Go 1.25.0 or later, and `github.com/stellar/go-stellar-sdk` v0.7.3 or
+later.
+
+## Quickstart
+
+Simulation tells you which addresses must authorize a call. Hand those entries
+to soroauth, and put the signed ones back on the operation:
+
+```go
+sim, err := client.SimulateTransaction(ctx, rpc.SimulateTransactionRequest{
+    Transaction: encodedTx,
+    AuthMode:    rpc.AuthModeRecord,
+})
+
+entries := make([]xdr.SorobanAuthorizationEntry, 0, len(*sim.Results[0].AuthXDR))
+for _, encoded := range *sim.Results[0].AuthXDR {
+    var entry xdr.SorobanAuthorizationEntry
+    if err := xdr.SafeUnmarshalBase64(encoded, &entry); err != nil {
+        return err
+    }
+    entries = append(entries, entry)
+}
+
+ledger, err := client.GetLatestLedger(ctx)
+validUntil, err := soroauth.ExpirationAfter(ledger.Sequence, 1000)
+
+signed, err := soroauth.AuthorizeAll(ctx, entries,
+    []soroauth.Signer{soroauth.NewEd25519Signer(sender)},
+    validUntil, network.TestNetworkPassphrase)
+if err != nil {
+    return err // nothing partial is ever returned
+}
+
+op.Auth = signed // then re-simulate in enforce mode, assemble, sign, submit
+```
+
+Source-account entries pass straight through untouched, so you can hand over
+everything simulation returned without sorting by arm first.
+
+## Credential types
+
+| Arm | Value | Preimage variant | Address in the signed bytes? |
+|---|---|---|---|
+| `SOROBAN_CREDENTIALS_SOURCE_ACCOUNT` | 0 | none — the envelope signature covers it | n/a |
+| `SOROBAN_CREDENTIALS_ADDRESS` | 1 | `ENVELOPE_TYPE_SOROBAN_AUTHORIZATION` (9) | no |
+| `SOROBAN_CREDENTIALS_ADDRESS_V2` | 2 | `ENVELOPE_TYPE_SOROBAN_AUTHORIZATION_WITH_ADDRESS` (10) | yes |
+| `SOROBAN_CREDENTIALS_ADDRESS_WITH_DELEGATES` | 3 | `ENVELOPE_TYPE_SOROBAN_AUTHORIZATION_WITH_ADDRESS` (10), bound to the **top-level** address | yes |
+
+The legacy arm is defined by CAP-46-11; V2 and the delegated-signer arm by
+CAP-71-01 and CAP-71-02. V2 binds the signer's address into the signed payload,
+which closes a narrow replay case: one key shared across several accounts,
+combined with a contract that does not itself bind the address into its
+arguments.
+
+`UpgradeToV2` converts an unsigned legacy entry to V2. You may need it:
+simulation can return either arm, and the RPC's `UseUpgradedAuth` flag is
+best-effort — it affects only the recording auth modes and is ignored by
+protocol versions whose host cannot emit AddressV2.
+
+## Delegates
+
+Under CAP-71-01 an account can authorize through delegated signers instead of
+signing itself. Every node in the tree — the account and every delegate at every
+depth — signs **one** payload, bound to the top-level address.
+
+```go
+wrapped, err := soroauth.WithDelegates(entry, validUntil,
+    []soroauth.Delegate{
+        {Address: d1},
+        {Address: d2, Nested: []soroauth.Delegate{{Address: d3}}},
+    }, nil) // nil top-level signature → ScvVoid, which CAP-71-01 permits
+
+for _, kp := range []*keypair.Full{k1, k2, k3} {
+    wrapped, err = soroauth.AuthorizeEntry(ctx, wrapped,
+        soroauth.NewEd25519Signer(kp), validUntil, passphrase,
+        soroauth.ForAddress(kp.Address()))
+}
+```
+
+Each delegates array is sorted by the XDR encoding of the address and checked
+for duplicates within that level, as CAP-71-01 requires; the same address at two
+*different* levels is allowed, and one `AuthorizeEntry` call fills every node
+carrying that address.
+
+Because every node commits to the same payload, the expiration is fixed once any
+node is signed: signing another node at a different `validUntilLedger` would
+leave the entry's signatures disagreeing, so soroauth refuses it.
+
+One consequence worth stating plainly: the delegates arm and V2 share the same
+address-bound preimage, so the same address, nonce, invocation, expiration and
+network produce an **identical payload** on both arms — golden vectors 3 and 6
+show exactly that. Replay protection comes from the nonce, which the host
+consumes; this is by design under CAP-71-01, not a defect.
+
+`AuthorizeAll` applies every signer matching any node in the tree. It does not
+fail when a delegate has no signer, because it cannot know the account's policy —
+so check the per-node `Signed` flags from `Inspect` before submitting if you
+need every node filled.
+
+## Expiration
+
+`ExpirationAfter(latestLedger, ledgers)` turns a lifetime into the absolute
+ledger an entry must carry. Two things about that number, both read from the
+host rather than inferred:
+
+- **It is inclusive.** `verify_and_consume_nonce` rejects only when
+  `ledger_seq > live_until_ledger`, so the expiration ledger itself is still
+  valid. The JS SDK's doc comment describes the bound as exclusive; the host is
+  the authority.
+- **There is an upper bound this library cannot enforce.** The host also rejects
+  anything above the network's `max_live_until_ledger`. That is a network
+  setting, so it is deliberately not hard-coded here — a baked-in constant would
+  silently become wrong. Read it from the network if you need the real ceiling.
+
+Zero is refused: by the rule above it is already expired, not permissive.
+
+## Differences from the JS SDK
+
+soroauth is proven byte-for-byte against `@stellar/stellar-sdk@17.1.0`, and
+deviates from it in four deliberate ways.
+
+- **A signature is only ever written to a node whose address matches the
+  target** — `ForAddress`, or the signer's own `Address()`. The JS reference
+  falls back to the top-level node when no target is given, even if the key
+  belongs to someone else. soroauth returns `ErrNoMatchingCredentialNode`
+  instead, because a signature on the wrong node is a transaction that pays fees
+  and then fails.
+- **No default write to the top-level node**, for the same reason.
+- **The signer is never invoked when nothing matches.** The zero-match check and
+  the already-signed check run *before* signing, so a hardware wallet or remote
+  signer is never asked to approve something that is about to be discarded.
+- **`AccountMultiSigner`** has no JS equivalent. It signs for a classic account
+  with several keys, sorted strictly ascending by raw public key and capped at
+  20, which is what the host requires.
+
+soroauth is also stricter in one place: wrapping or upgrading an entry that
+already carries a signature returns `ErrAlreadySigned`, where JS silently
+discards the old signature. The payload changes under both operations, so that
+signature would no longer verify.
+
+## Proven on testnet
+
+Every claim below is backed by a transaction that exists on chain. Full detail,
+including raw host errors, is in [e2e/RESULTS.md](e2e/RESULTS.md).
+
+| Scenario | Result | Transaction |
+|---|---|---|
+| Legacy `ADDRESS` accepted | accepted | [`6d77c01a…`](https://stellar.expert/explorer/testnet/tx/6d77c01affa11766979ad905e68d32a61a6e3daa6a110096ce7bb4698376a182) |
+| CAP-71 `ADDRESS_V2` accepted | accepted | [`566dcdac…`](https://stellar.expert/explorer/testnet/tx/566dcdacee95e2e44646099b78de46208f1b1c2b18bc0c818dcdae2349d85661) |
+| `AccountMultiSigner` meets a 2-of-2 threshold | accepted | [`9914176a…`](https://stellar.expert/explorer/testnet/tx/9914176a36dd314927aa830930a57c2bd85254a8bef659b1d88e13408a82459f) |
+| One signature does **not** meet that threshold | rejected, as it must be | [`5b0b49e7…`](https://stellar.expert/explorer/testnet/tx/5b0b49e75e958feff7152b359039996ca57f28ee371e2207633ec645a7faa6c6) |
+| Delegated signers accepted, account itself unsigned | accepted | [`5cd87e73…`](https://stellar.expert/explorer/testnet/tx/5cd87e7397b0936550875944d8f8df217ee75b438a5c706c31565c89cd2ccf2a) |
+| An unregistered delegate is refused | rejected, as it must be | [`9afda479…`](https://stellar.expert/explorer/testnet/tx/9afda479a6b5bad8cdefd4c35956aaf2a1ba15e13f394b818a3db8d392f52fdd) |
+
+The two rejection rows matter as much as the acceptances: they assert the host's
+specific reason, so the accepting scenarios cannot be passing by accident.
+
+Offline, nine golden vectors generated by `@stellar/stellar-sdk@17.1.0` assert
+that soroauth's preimage, payload hash and final signed entry are byte-identical
+to the reference, and CI regenerates them on every push to catch drift.
+
+## Status
+
+**v0.1.0. Unaudited.** The wire format is fixed by the protocol and pinned by
+the golden vectors, but this library is new and has not been reviewed by anyone
+outside its author. Read the code before you sign anything valuable with it.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Golden vectors are never edited by hand.
+Security reports go through [SECURITY.md](SECURITY.md), not the issue tracker.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
