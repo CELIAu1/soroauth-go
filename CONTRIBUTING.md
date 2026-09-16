@@ -1,0 +1,129 @@
+# Contributing
+
+Thanks for looking. This library produces signatures that move money, so the bar
+for changes is higher than the size of the codebase suggests. Most of what
+follows exists to keep the evidence honest rather than to police style.
+
+## Setup
+
+```sh
+git clone https://github.com/soroauth/soroauth-go
+cd soroauth-go
+go test ./...
+```
+
+That is the whole setup for the library and CLI. Go 1.25.0 or later.
+
+Two optional pieces need more:
+
+- **Regenerating golden vectors** needs Node (>= 22.12.0, what
+  `@stellar/stellar-sdk@17.1.0` declares).
+- **Running the e2e tests** needs Rust 1.93.0 (pinned in
+  `e2e/contracts/rust-toolchain.toml`, rustup will fetch it) and
+  `stellar-cli` 28.0.0.
+
+## Before you open a pull request
+
+```sh
+gofmt -l .        # must print nothing
+go vet ./...
+go test ./...
+```
+
+CI runs exactly these, plus the golden-vector drift check.
+
+## Golden vectors
+
+`testdata/vectors/*.json` are generated, committed artefacts. They are the
+evidence that soroauth agrees byte-for-byte with the reference implementation.
+
+**Never edit a vector by hand.** Not to fix a failing test, not to adjust a
+field, not for anything. A hand-edited vector is a test that has been made to
+agree with the code instead of the other way round, which is precisely the
+failure the vectors exist to prevent. CI regenerates them on every push and
+fails if the committed files differ, so an edit will be caught — but the reason
+not to do it is that it destroys the evidence, not that you will be caught.
+
+To change them, change the generator:
+
+```sh
+cd testdata/gen
+npm ci
+node gen.mjs
+```
+
+Then commit the regenerated files together with the generator change.
+
+If a vector disagrees with the Go code, the Go code is wrong until proven
+otherwise. If you believe the vector itself is wrong, stop and open an issue
+saying why, with the protocol reference — do not change it to make a test pass.
+
+The generator refuses to run against any `@stellar/stellar-sdk` other than the
+pinned 17.1.0, since a vector from another build is not evidence about this one.
+
+## Running the e2e tests
+
+```sh
+cd e2e/contracts && stellar contract build
+cd ../.. && go test -tags e2e -v ./e2e/...
+```
+
+They run against testnet by default; `SOROAUTH_RPC_URL` points them elsewhere.
+Accounts are generated at runtime and funded by friendbot. A full run takes
+about three minutes.
+
+`e2e/RESULTS.md` is written by a run and only when every scenario ran. Commit it
+only from a real, complete run — it is what the README's testnet claims point
+at.
+
+See [e2e/README.md](e2e/README.md) for what each scenario proves and why the two
+rejection scenarios exist.
+
+## What a change needs
+
+- **Tests that can fail.** A test that passes for the wrong reason is worse than
+  no test, because it reads as evidence. Two of this repo's own tests were
+  originally written that way and had to be fixed: a rejection scenario that
+  asserted only "the transaction failed" was passing while the transaction ran
+  out of instructions and never reached the check it was supposedly about. If
+  you add a test that expects a failure, assert *which* failure.
+- **A test that proves the guard bites.** Where practical, break the thing
+  deliberately, confirm the test fails, and say so in the commit message. Do not
+  commit the break.
+- **No mutation of caller input.** Every function returning a modified entry
+  deep-copies first and has a test proving the input's bytes are unchanged.
+- **Errors that name the sentinel.** Wrap with
+  `fmt.Errorf("soroauth: <operation>: %w", err)` and match with `errors.Is`.
+- **Fail closed.** Where the protocol or the caller's intent is ambiguous,
+  refuse and return an error rather than guess. Say which reading you chose in
+  the commit message.
+- **Cited protocol claims.** Any statement about host behaviour in a doc
+  comment, README or commit message needs a source — the CAP, the
+  `rs-soroban-env` file and function, or the SDK file and line. Not memory.
+
+## Commit format
+
+Conventional commits, lowercase and imperative:
+
+```
+feat(authorize): sign delegate nodes by address
+test(golden): cover delegate vectors
+docs(readme): write readme
+ci: add golden drift job
+```
+
+One logical unit per commit — a function and its tests, one CLI subcommand, one
+document. Commit bodies carry the evidence: the command you ran and its real
+output, or the file and line you read.
+
+A commit that corrects an earlier wrong claim or wrong code is its own commit,
+and its body says what was wrong, how it was found, and what changed.
+
+## Security
+
+Do not open a public issue for a signature-correctness or key-handling bug. See
+[SECURITY.md](SECURITY.md).
+
+## License
+
+By contributing you agree your contributions are licensed under Apache-2.0.
