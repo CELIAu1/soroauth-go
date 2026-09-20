@@ -91,7 +91,7 @@
  },
  {
   "title": "feat(cmd): assemble a passkey signature from the CLI",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Let `soroauth sign` accept a WebAuthn assertion (from a file or stdin) instead of a seed, so passkey flows are scriptable.",
   "why": "Passkey signing happens in a browser, then the assertion has to reach a backend. Without CLI support that handoff is bespoke glue in every integration.",
@@ -107,7 +107,7 @@
  },
  {
   "title": "feat(signers): user-presence and timeout handling for passkey signers",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "signers",
   "description": "Handle the WebAuthn flags that say whether the user was present and verified, and give callers a way to require them.",
   "why": "A passkey assertion can be produced without user verification. A backend signing a payment should be able to insist on UV, and today has no way to express that.",
@@ -252,7 +252,7 @@
  },
  {
   "title": "feat(signers): retry and backoff policy for remote signers",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "signers",
   "description": "A shared retry policy for signers that talk to a network, with jittered backoff and a cap.",
   "why": "Every remote signer will otherwise grow its own retry loop, and a naive one can double-sign or hammer a KMS quota.",
@@ -267,7 +267,7 @@
  },
  {
   "title": "feat(signers): cancellation and deadline semantics audit",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "signers",
   "description": "Audit every signer for correct context handling and document the guarantees.",
   "why": "`Signer.Sign` takes a context, but only the in-tree signers have been checked. A hardware or remote signer that ignores cancellation hangs a caller's request.",
@@ -406,7 +406,7 @@
  },
  {
   "title": "test: publish a parity report artifact",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Have the parity suites emit a machine-readable report and attach it to CI runs and releases.",
   "why": "The README claims byte-for-byte agreement. A per-release artifact turns that from a claim into something a reader can check.",
@@ -421,7 +421,7 @@
  },
  {
   "title": "test: version the golden vector schema",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Add an explicit schema version to the vector JSON and make the loader reject versions it does not understand.",
   "why": "`golden_test.go` already uses `DisallowUnknownFields`, but a field being *removed* or reinterpreted would pass silently. Parity harnesses in other languages make that worse.",
@@ -518,7 +518,7 @@
  },
  {
   "title": "ci: enforce a size budget on the wasm build",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Measure the WASM artifact size in CI and fail if it exceeds an agreed budget.",
   "why": "Go WASM binaries grow quickly and silently. A browser package that reaches several megabytes stops being usable without anyone noticing the day it happened.",
@@ -533,7 +533,7 @@
  },
  {
   "title": "refactor(wasm): review the exported API surface",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "integrations",
   "description": "Review what the WASM build exposes and narrow it to what browsers actually need.",
   "why": "Every exported symbol is a compatibility commitment and adds size. Better to decide the surface deliberately than to inherit it.",
@@ -613,7 +613,7 @@
  },
  {
   "title": "feat: batch verification API",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Verify many entries in one call, reporting per entry.",
   "why": "A transaction can carry several entries, and a caller wants one answer for the set, not N round trips.",
@@ -628,7 +628,7 @@
  },
  {
   "title": "feat: report custom account signature shapes best-effort",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "When verification meets a signature it cannot check, describe its shape rather than reporting nothing.",
   "why": "'Cannot check' is honest but unhelpful. Telling the operator it looks like a passkey signature, or an unknown map, lets them reason about it.",
@@ -675,7 +675,7 @@
  },
  {
   "title": "test: fuzz ValidateDelegateOrder",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A fuzz target over arbitrary entry bytes asserting `ValidateDelegateOrder` never panics and never accepts a mis-ordered or duplicated array.",
   "why": "It walks attacker-supplied structure recursively, and its recursion has no depth limit of its own beyond the XDR decoder's.",
@@ -691,7 +691,7 @@
  },
  {
   "title": "test: fuzz Inspect",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A fuzz target asserting `Inspect` never panics on arbitrary entry bytes.",
   "why": "`Inspect` is the function most likely to be pointed at an untrusted entry \u2014 that is what it is for.",
@@ -706,7 +706,7 @@
  },
  {
   "title": "test: fuzz the xdrcopy round-trip",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Fuzz `xdrcopy.Copy` and assert the copy is always byte-identical and shares no memory.",
   "why": "Every non-mutation guarantee in the library rests on this one function.",
@@ -721,7 +721,7 @@
  },
  {
   "title": "test: property test that signed and stored expiration never disagree",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A property test over generated entries: for every entry `AuthorizeEntry` returns, rebuilding the preimage reproduces the payload its signature verifies against.",
   "why": "This is the most dangerous failure the library could have \u2014 an entry that looks complete and fails on-chain. Several tests check it incidentally; none asserts it as a property.",
@@ -736,7 +736,7 @@
  },
  {
   "title": "test: build a fuzz seed corpus from the golden vectors",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Generate seed corpora for every fuzz target from the committed vectors.",
   "why": "A fuzzer starting from random bytes spends most of its budget rediscovering valid XDR. Real entries as seeds get it to the interesting space immediately.",
@@ -848,7 +848,7 @@
  },
  {
   "title": "test(e2e): shared fixture deployment harness",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Factor the deploy-and-fund logic out of the e2e tests so new fixtures do not each reimplement it.",
   "why": "Four new fixture contracts are coming. `deploy_test.go` was written for one and will be copy-pasted four times otherwise.",
@@ -942,7 +942,7 @@
  },
  {
   "title": "feat: nested delegate syntax for the CLI",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "A command-line syntax for nested delegate trees, which are currently library-only.",
   "why": "`soroauth delegates` takes a flat list, so the CLI cannot express a tree the library handles fine.",
@@ -958,7 +958,7 @@
  },
  {
   "title": "feat(cmd): read entries from stdin",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Accept `--entry -` so subcommands compose in a pipeline.",
   "why": "Base64 entries are long, and passing them as arguments is awkward and hits argument length limits.",
@@ -973,7 +973,7 @@
  },
  {
   "title": "feat(cmd): JSON output mode",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "A `--json` flag on every subcommand for machine-readable output.",
   "why": "`inspect` already emits JSON; the others emit prose, so scripting against them means parsing text.",
@@ -988,7 +988,7 @@
  },
  {
   "title": "ci: publish a container image",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Build and publish a minimal image containing the CLI on each release.",
   "why": "CI systems that need to sign an entry should not have to install a Go toolchain.",
@@ -1003,7 +1003,7 @@
  },
  {
   "title": "ci: release automation",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "A workflow that builds CLI binaries on a tag and attaches them to a GitHub release.",
   "why": "v0.1.0 was tagged and released by hand, which does not scale and is easy to get subtly wrong.",
@@ -1051,7 +1051,7 @@
  },
  {
   "title": "feat: delegate tree visualizer",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Render a delegate tree as readable ASCII or DOT, showing which nodes are signed.",
   "why": "Nested delegate trees are hard to reason about as JSON, and that is where partial-signing mistakes hide.",
@@ -1066,7 +1066,7 @@
  },
  {
   "title": "feat: nonce tracking helper",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "A helper that tracks which nonces an address has used, so callers can avoid collisions across concurrent signing.",
   "why": "The nonce is what makes a signature single-use. A backend signing concurrently can collide, and the failure surfaces only on-chain.",
@@ -1081,7 +1081,7 @@
  },
  {
   "title": "test: protocol version compatibility matrix",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A test matrix recording which protocol versions each credential arm is valid on.",
   "why": "Arms 2 and 3 arrived in Protocol 27. Someone will eventually point soroauth at an older network and get a confusing failure.",
@@ -1261,7 +1261,7 @@
  },
  {
   "title": "feat: RequireAllSigned option for AuthorizeAll",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "An option making `AuthorizeAll` fail when any credential node is left unsigned.",
   "why": "`AuthorizeAll` returns nil when one signer matched somewhere in the tree, because it cannot know the account's policy. A caller who does know must currently walk `Inspect` output themselves.",
@@ -1277,7 +1277,7 @@
  },
  {
   "title": "feat: delegate plan input for AuthorizeAll",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Let `AuthorizeAll` take a per-address delegate tree to wrap entries with before signing.",
   "why": "Using the delegates arm through the batch helper today means unpacking the batch, wrapping each entry, and repacking \u2014 the helper stops helping exactly where it gets fiddly.",
@@ -1293,7 +1293,7 @@
  },
  {
   "title": "feat: typed errors carrying the offending address",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Error types exposing the address as a field, wrapping the existing sentinels.",
   "why": "Three sentinels name an address in their message, so acting on it means parsing strings.",
@@ -1309,7 +1309,7 @@
  },
  {
   "title": "test: audit context propagation across the API",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Verify every exported function taking a context actually passes it down, and test cancellation at each layer.",
   "why": "The rule is that every function calling a `Signer` takes a context first and passes it on. Only the signers have been tested for it.",
@@ -1325,7 +1325,7 @@
  },
  {
   "title": "perf: benchmarks for the signing path",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Benchmarks for `Preimage`, `Payload`, `AuthorizeEntry` on all three arms, and `AuthorizeAll` over a realistic batch.",
   "why": "No performance claim is made anywhere and none should be made without measurements. The batch-signing work needs a baseline.",
@@ -1341,7 +1341,7 @@
  },
  {
   "title": "perf: reduce allocations in the entry deep-copy path",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Profile `xdrcopy.Copy` under batch signing and cut avoidable allocations.",
   "why": "Every entry-returning function deep-copies by marshal/unmarshal. Correct, and the hottest path in a batch.",
@@ -1405,7 +1405,7 @@
  },
  {
   "title": "ci: run the e2e suite on a schedule",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A scheduled workflow running the e2e scenarios against testnet and reporting failures.",
   "why": "The e2e suite is manual. Testnet resets, protocol upgrades and RPC changes will break it silently between releases.",
@@ -1453,7 +1453,7 @@
  },
  {
   "title": "test: golden vectors for the source-account arm",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Add vectors covering source-account entries passing through unchanged.",
   "why": "Every arm has vectors except this one, and pass-through is exactly the kind of behaviour that silently regresses.",
@@ -1469,7 +1469,7 @@
  },
  {
   "title": "test: golden vectors at expiration boundaries",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Vectors at expiration 1, MaxUint32, and around the inclusive boundary.",
   "why": "The expiration is inclusive and the code relies on that. Boundary behaviour is asserted in unit tests but not pinned against the reference implementation.",
@@ -1485,7 +1485,7 @@
  },
  {
   "title": "ci: coverage reporting with a floor",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Measure test coverage in CI, publish the report, and fail if it drops below an agreed floor.",
   "why": "Coverage is high today because the suite was written alongside the code. Without a floor that erodes one PR at a time.",
@@ -1501,7 +1501,7 @@
  },
  {
   "title": "refactor(e2e): reduce duplication across scenario runners",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "Factor the shared record/sign/enforce/submit shape out of the scenario runners.",
   "why": "`runTransfer`, `runTransferExpectingFailure` and `delegatesFlow` share most of their body and have already drifted once.",
@@ -1517,7 +1517,7 @@
  },
  {
   "title": "feat(cmd): meaningful exit codes",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Give the CLI distinct exit codes for usage errors, signing refusals and verification failures.",
   "why": "Everything non-zero is currently exit 1, so a script cannot tell 'you typed it wrong' from 'this entry is already signed'.",
@@ -1549,7 +1549,7 @@
  },
  {
   "title": "fix: bound XDR decode depth on untrusted input",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Review every place untrusted base64 is decoded and ensure decode depth and length limits are set deliberately.",
   "why": "`Inspect` and the CLI are pointed at entries from elsewhere by design. A deeply nested entry should be refused, not consume the process.",
@@ -1565,7 +1565,7 @@
  },
  {
   "title": "fix: reject non-canonical strkey input",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Confirm `ParseAddress` rejects non-canonical encodings and add tests pinning the behaviour.",
   "why": "`strkey.DecodeAny` validates checksum and length, but the canonical-length behaviour is not pinned by soroauth's own tests, and addresses decide who a signature is for.",
@@ -1581,7 +1581,7 @@
  },
  {
   "title": "test: property test for address round-trips",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "testing",
   "description": "A property test over generated G\u2026 and C\u2026 addresses asserting parse/format round-trips exactly.",
   "why": "The existing tests use fixed addresses. Address handling decides signature targeting, so it deserves generated coverage.",
@@ -1597,7 +1597,7 @@
  },
  {
   "title": "feat(cmd): relative expiration flag",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Accept `--valid-for <ledgers>` as an alternative to an absolute `--valid-until`.",
   "why": "Callers think in 'about an hour', not ledger numbers, and currently have to query the ledger and add by hand.",
@@ -1613,7 +1613,7 @@
  },
  {
   "title": "feat: per-node control over the already-signed guard",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "api",
   "description": "Allow `AllowResign` to be scoped to specific addresses rather than the whole entry.",
   "why": "`AllowResign` today lifts the guard everywhere, which is broader than most callers want when replacing one party's signature.",
@@ -1645,7 +1645,7 @@
  },
  {
   "title": "feat(cmd): soroauth doctor",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "A subcommand checking the local environment: Go version, network reachability, and whether a named secret variable is set (never printing it).",
   "why": "Most first-run problems are environmental, and the current failures do not point at the cause.",
@@ -1661,7 +1661,7 @@
  },
  {
   "title": "ci: cross-compilation matrix",
-  "complexity": "medium",
+  "complexity": "high",
   "area": "tooling",
   "description": "Build the CLI for the platforms release artifacts will target, on every PR.",
   "why": "A build break on a platform nobody develops on is otherwise found at release time.",
@@ -1996,7 +1996,7 @@
  },
  {
   "title": "chore: add a Makefile for common tasks",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "tooling",
   "description": "A Makefile wrapping test, vet, fmt, vectors, e2e and build.",
   "why": "The commands exist across several documents; one entry point is less to remember and less to get wrong.",
@@ -2027,7 +2027,7 @@
  },
  {
   "title": "ci: spell-check the documentation",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "docs",
   "description": "Run a spell checker over the Markdown files.",
   "why": "There is a lot of prose now and typos in a security policy read as carelessness.",
@@ -2043,7 +2043,7 @@
  },
  {
   "title": "ci: check documentation links",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "docs",
   "description": "Verify internal and external links in the Markdown files resolve.",
   "why": "The docs cross-link heavily and now point at CAPs, rs-soroban-env and SDK pages that move.",
@@ -2059,7 +2059,7 @@
  },
  {
   "title": "ci: adopt golangci-lint",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "tooling",
   "description": "Add a golangci-lint config and run it in CI.",
   "why": "vet and gofmt are the current bar. A linter catches a broader class without reviewer effort.",
@@ -2091,7 +2091,7 @@
  },
  {
   "title": "test: assert every exported symbol has a doc comment",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "testing",
   "description": "A test that fails when an exported identifier lacks a doc comment.",
   "why": "The standard says every exported identifier is documented with its rationale. A test keeps that true as contributors arrive.",
@@ -2283,7 +2283,7 @@
  },
  {
   "title": "ci: pin GitHub Actions to commit SHAs",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "tooling",
   "description": "Pin every action to a full commit SHA with the version in a trailing comment.",
   "why": "Major-version tags are mutable. A compromised or retagged action would run with access to this repository's CI, and the golden-drift job is part of how the project's correctness claims are made.",
@@ -2363,7 +2363,7 @@
  },
  {
   "title": "test: verify README snippets compile",
-  "complexity": "trivial",
+  "complexity": "high",
   "area": "testing",
   "description": "Extract the README's Go snippets and compile them in CI.",
   "why": "The quickstart is the first code anyone runs. A snippet that no longer compiles is worse than no snippet, and nothing checks it today.",
