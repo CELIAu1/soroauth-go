@@ -279,7 +279,7 @@ and whether anything in soroauth needs to change.
 
 ### 16. A worked multi-party signing guide
 
-**Complexity:** trivial
+**Complexity:** medium
 
 The hard part of the delegates arm is operational, not API-shaped: who signs
 first, what gets passed between parties, and why the expiration cannot change
