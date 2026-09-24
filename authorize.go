@@ -167,6 +167,10 @@ func credentialNodes(entry *xdr.SorobanAuthorizationEntry) ([]credentialNode, er
 //
 // A node that already carries a signature is not overwritten unless the caller
 // passes AllowResign; see that option for why.
+//
+// ctx is checked before any work, including the source-account pass-through,
+// so a cancelled context fails closed even on a path that never reaches a
+// Signer. The same ctx is passed unchanged to signer.Sign.
 func AuthorizeEntry(
 	ctx context.Context,
 	entry xdr.SorobanAuthorizationEntry,
@@ -175,6 +179,10 @@ func AuthorizeEntry(
 	networkPassphrase string,
 	opts ...AuthorizeOption,
 ) (xdr.SorobanAuthorizationEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
+	}
+
 	var config authorizeConfig
 	for _, opt := range opts {
 		opt(&config)

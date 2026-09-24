@@ -108,6 +108,10 @@ func signersForEntry(entry xdr.SorobanAuthorizationEntry, signers []Signer) (mat
 // it requires its own key as well — so it enforces what it can check, that the
 // entry is not going out with nothing signed at all, and leaves the policy to
 // the caller who supplies the signers.
+//
+// ctx is checked before the first entry, including an empty batch, so a
+// cancelled context fails closed even when no Signer would run. The same ctx
+// is passed unchanged to AuthorizeEntry and from there to Signer.Sign.
 func AuthorizeAll(
 	ctx context.Context,
 	entries []xdr.SorobanAuthorizationEntry,
@@ -115,6 +119,10 @@ func AuthorizeAll(
 	validUntilLedger uint32,
 	networkPassphrase string,
 ) ([]xdr.SorobanAuthorizationEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("soroauth: authorize all: %w", err)
+	}
+
 	out := make([]xdr.SorobanAuthorizationEntry, 0, len(entries))
 
 	for i, entry := range entries {

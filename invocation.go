@@ -62,7 +62,14 @@ func newNonce() (xdr.Int64, error) {
 // The nonce is generated here; see newNonce. Everything else is delegated to
 // AuthorizeEntry, so the target-address rule, the expiration handling and the
 // deep-copy guarantee are all identical to authorizing a simulated entry.
+//
+// ctx is checked before any work, including nonce generation, so a cancelled
+// context fails closed without consuming entropy. The same ctx is passed
+// unchanged to AuthorizeEntry and from there to Signer.Sign.
 func AuthorizeInvocation(ctx context.Context, p AuthorizeInvocationParams) (xdr.SorobanAuthorizationEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize invocation: %w", err)
+	}
 	if p.Signer == nil {
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
 			"soroauth: authorize invocation: %w", ErrMissingSigner)
