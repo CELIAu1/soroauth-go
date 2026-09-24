@@ -28,8 +28,12 @@ jobs:
           fi
       - name: vet
         run: go vet ./...
+      # -race because internal/xdrcopy shares encoder/decoder buffers across
+      # calls through sync.Pool: TestCopyConcurrentReuse only proves the
+      # no-aliasing guarantee holds under concurrency if something is actually
+      # watching for concurrent misuse.
       - name: test
-        run: go test ./...
+        run: go test -race ./...
 
   cross-compile:
     name: cross-compile release targets

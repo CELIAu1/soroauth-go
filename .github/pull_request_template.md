@@ -16,7 +16,7 @@ file and function, or the SDK file and line. Not memory.
 
 ## Checklist
 
-- [ ] `gofmt -l .` prints nothing, `go vet ./...` and `go test ./...` pass
+- [ ] `gofmt -l .` prints nothing, `go vet ./...` and `go test -race ./...` pass
 - [ ] New behaviour has tests, and failure cases assert *which* failure, not just that something failed
 - [ ] If this adds a guard, I broke it deliberately, confirmed the test failed, and said so above — and did not commit the break
 - [ ] Any function returning a modified entry deep-copies first and has a test proving the caller's input is byte-identical afterwards

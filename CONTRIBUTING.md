@@ -27,11 +27,14 @@ Two optional pieces need more:
 ```sh
 gofmt -l .        # must print nothing
 go vet ./...
-go test ./...
+go test -race ./...
 ```
 
 CI runs exactly these, plus the golden-vector drift check and the signing-path
-budget check (see [Benchmarks](#benchmarks)).
+budget check (see [Benchmarks](#benchmarks)). The suite runs with `-race`
+because `internal/xdrcopy` shares encoder and decoder buffers across calls
+through `sync.Pool`; without the detector, `TestCopyConcurrentReuse` would
+still pass on code that races.
 
 ## Benchmarks
 
