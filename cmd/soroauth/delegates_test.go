@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -210,5 +211,67 @@ func TestDelegatesHelpMentionsTheNestingLimit(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Nested delegates") {
 		t.Errorf("the help text does not mention nested delegates: %q", stderr)
+	}
+}
+
+func TestDelegatesJSONOutput(t *testing.T) {
+	v := loadVector(t, "delegates_from_legacy")
+	if v.PreWrapEntryXDR == "" {
+		t.Fatal("the vector records no pre-wrap entry")
+	}
+
+	stdout, _, err := runCLI(t, "delegates",
+		"--entry", v.PreWrapEntryXDR,
+		"--valid-until", "1234567",
+		"--delegate", v.Delegates[0].Address,
+		"--delegate", v.Delegates[1].Address,
+		"--json")
+	if err != nil {
+		t.Fatalf("delegates --json returned an error: %v", err)
+	}
+
+	var out struct {
+		WrappedEntry string `json:"wrapped_entry"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	var entry xdr.SorobanAuthorizationEntry
+	if err := xdr.SafeUnmarshalBase64(out.WrappedEntry, &entry); err != nil {
+		t.Fatalf("decoding the wrapped entry: %v", err)
+	}
+	if entry.Credentials.Type != xdr.SorobanCredentialsTypeSorobanCredentialsAddressWithDelegates {
+		t.Fatalf("arm is %v, want the delegates arm", entry.Credentials.Type)
+	}
+}
+
+func TestDelegatesJSONErrorStaysOnStdout(t *testing.T) {
+	v := loadVector(t, "delegates_from_legacy")
+
+	stdout, stderr, err := runCLI(t, "delegates",
+		"--entry", "not-base64",
+		"--valid-until", "1",
+		"--delegate", v.Delegates[0].Address,
+		"--json")
+	if err == nil {
+		t.Fatal("expected error for invalid entry")
+	}
+
+	if stderr != "" {
+		t.Errorf("stderr should be empty in JSON mode, got: %q", stderr)
+	}
+
+	var out struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+	}
+	if out.Error == "" {
+		t.Error("JSON error object has empty error field")
+	}
+	if strings.Contains(stdout, "usage:") {
+		t.Error("stdout contains usage text in JSON error mode")
 	}
 }

@@ -12,6 +12,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -106,4 +107,18 @@ func encodeEntry(entry xdr.SorobanAuthorizationEntry) (string, error) {
 		return "", fmt.Errorf("encoding the entry: %w", err)
 	}
 	return encoded, nil
+}
+
+// writeJSONError writes a JSON error object to stdout if jsonFlag is true,
+// otherwise returns the error for the caller to print to stderr.
+func writeJSONError(stdout io.Writer, jsonFlag bool, err error) error {
+	if jsonFlag {
+		type jsonError struct {
+			Error string `json:"error"`
+		}
+		enc := json.NewEncoder(stdout)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(jsonError{Error: err.Error()})
+	}
+	return err
 }

@@ -26,6 +26,66 @@ go install github.com/soroauth/soroauth-go/cmd/soroauth@latest
 Requires Go 1.25.0 or later, and `github.com/stellar/go-stellar-sdk` v0.7.3 or
 later.
 
+## CLI
+
+Every subcommand accepts `--json` to emit a single JSON object on stdout. On
+success the object carries the result fields; on failure it carries an `error`
+field. Nothing else is written to stdout in JSON mode, so scripts can safely
+pipe the output to `jq` without stripping usage text.
+
+| subcommand | success fields | failure field |
+|---|---|---|
+| `payload` | `preimage`, `payload` | `error` |
+| `sign` | `signed_entry` | `error` |
+| `delegates` | `wrapped_entry` | `error` |
+| `inspect` | (the `EntryInfo` struct) | `error` |
+
+### Worked invocation — JSON output
+
+```sh
+# What would this signer have to sign?
+SEED=SABC... ./soroauth payload \
+  --entry <base64> --valid-until 1234567 --network testnet --json |
+  jq -r .payload
+
+# Sign and get the entry back as JSON
+SEED=SABC... ./soroauth sign \
+  --entry <base64> --valid-until 1234567 --network testnet \
+  --secret-env SEED --json |
+  jq -r .signed_entry
+
+# Wrap an entry with delegates, JSON out
+./soroauth delegates \
+  --entry <base64> --valid-until 1234567 \
+  --delegate GAAAA... --delegate GBBBB... --json |
+  jq -r .wrapped_entry
+```
+
+### Release workflow
+
+The project uses a GitHub Actions workflow (`.github/workflows/release.yml`) that
+runs on version tags (`v*`). It:
+
+1. Regenerates the golden vectors from the pinned JS SDK and fails if they
+   drift (the same check that runs on every push).
+2. Builds the CLI for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
+   `darwin/arm64`, `windows/amd64`.
+3. Creates a GitHub Release whose notes are extracted from `CHANGELOG.md` for
+   the tagged version.
+4. Attaches all six binaries to the release.
+
+To cut a release:
+
+```sh
+# Update CHANGELOG.md with the new version's entries
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow will refuse to publish if the golden drift check fails, so a
+release is only created when the library is provably byte-identical to the
+reference implementation.
+
 ## Quickstart
 
 Simulation tells you which addresses must authorize a call. Hand those entries

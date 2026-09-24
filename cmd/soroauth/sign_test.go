@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -219,5 +220,68 @@ func TestSignRejects(t *testing.T) {
 				t.Errorf("a failing command wrote to stdout: %q", stdout)
 			}
 		})
+	}
+}
+
+func TestSignJSONOutput(t *testing.T) {
+	v := loadVector(t, "v2_single_testnet")
+	signer := vectorKeypair(t, "soroauth-vector-signer-1")
+
+	stdout, _, err := runCLIEnv(t, map[string]string{"SEED": signer.Seed()},
+		"sign",
+		"--entry", v.UnsignedEntryXDR,
+		"--valid-until", "1234567",
+		"--network", "testnet",
+		"--secret-env", "SEED",
+		"--json")
+	if err != nil {
+		t.Fatalf("sign --json returned an error: %v", err)
+	}
+
+	var out struct {
+		SignedEntry string `json:"signed_entry"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	signedVector := loadFullVector(t, "v2_single_testnet")
+	if out.SignedEntry != signedVector {
+		t.Errorf("signed entry differs from the golden vector\n want %s\n  got %s", signedVector, out.SignedEntry)
+	}
+}
+
+func TestSignJSONErrorStaysOnStdout(t *testing.T) {
+	v := loadVector(t, "v2_single_testnet")
+
+	// Test with a key that doesn't match any node in the entry
+	stranger := vectorKeypair(t, "soroauth-vector-delegate-3")
+
+	stdout, stderr, err := runCLIEnv(t, map[string]string{"SEED": stranger.Seed()},
+		"sign",
+		"--entry", v.UnsignedEntryXDR,
+		"--valid-until", "1234567",
+		"--network", "testnet",
+		"--secret-env", "SEED",
+		"--json")
+	if err == nil {
+		t.Fatal("expected error for no matching node")
+	}
+
+	if stderr != "" {
+		t.Errorf("stderr should be empty in JSON mode, got: %q", stderr)
+	}
+
+	var out struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+	}
+	if out.Error == "" {
+		t.Error("JSON error object has empty error field")
+	}
+	if strings.Contains(stdout, "usage:") {
+		t.Error("stdout contains usage text in JSON error mode")
 	}
 }

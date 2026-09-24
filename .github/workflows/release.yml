@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  golden-drift:
+    name: golden vectors are reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: testdata/gen/package-lock.json
+      - name: install the pinned reference sdk
+        working-directory: testdata/gen
+        run: npm ci
+      - name: regenerate the vectors
+        working-directory: testdata/gen
+        run: node gen.mjs
+      - name: fail if the committed vectors changed
+        run: |
+          if ! git diff --exit-code testdata/vectors; then
+            echo
+            echo "The committed golden vectors differ from freshly generated ones."
+            echo "Vectors are never edited by hand. Regenerate them with:"
+            echo "  cd testdata/gen && npm ci && node gen.mjs"
+            echo "and commit the result, or investigate why the reference output moved."
+            exit 1
+          fi
+
+  build:
+    name: build binaries
+    needs: golden-drift
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+        exclude:
+          - goos: windows
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          binary_name=soroauth
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            binary_name=soroauth.exe
+          fi
+          go build -ldflags="-s -w" -o "${binary_name}" ./cmd/soroauth
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroauth-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            soroauth
+            soroauth.exe
+          retention-days: 1
+
+  release:
+    name: create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: prepare release notes
+        id: notes
+        run: |
+          # Extract the section for this tag from CHANGELOG.md
+          tag="${GITHUB_REF_NAME}"
+          # Find the section for this version (e.g., ## [0.1.0] — 2026-09-16)
+          # and everything until the next version header or EOF
+          awk -v tag="$tag" '
+            /^## \[/ { if (found && !printed) exit; if ($0 ~ "\\[" substr(tag, 2) "\\]") found=1 }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Could not find release notes for $tag in CHANGELOG.md" >&2
+            exit 1
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/soroauth-linux-amd64/soroauth
+            artifacts/soroauth-linux-arm64/soroauth
+            artifacts/soroauth-darwin-amd64/soroauth
+            artifacts/soroauth-darwin-arm64/soroauth
+            artifacts/soroauth-windows-amd64/soroauth.exe
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
