@@ -79,6 +79,58 @@ at.
 See [e2e/README.md](e2e/README.md) for what each scenario proves and why the two
 rejection scenarios exist.
 
+## Property-based tests
+
+The address package includes property-based tests using [gopter](https://github.com/leanovate/gopter).
+These tests generate thousands of random G... and C... addresses and verify:
+
+- ParseAddress/FormatAddress round-trips for both address types
+- XDR encoding stability across round-trips
+- Rejection of invalid inputs (muxed addresses, secret seeds, liquidity pools,
+  claimable balances, malformed base32, corrupted checksums, truncated addresses,
+  empty strings)
+
+### Running property tests locally
+
+```sh
+# Run the full property test suite (1000 iterations per property)
+go test -run TestParseAddressFormatAddressProperty -v ./...
+
+# Run the deterministic subset (100 iterations, fixed seed for CI reproducibility)
+go test -run TestParseAddressFormatAddressDeterministic -v ./...
+
+# Run the complementary XDR-level tests
+go test -run 'TestParseAddressWithRandomXDR|TestFormatAddressRejectsInvalidXDR' -v ./...
+```
+
+### Reproducing a property test failure
+
+If a property test fails, the output will show the seed and the generated value
+that caused the failure. To reproduce:
+
+```sh
+# 1. Note the seed from the failure output (e.g., "failed with initial seed: 12345")
+# 2. Run with that seed:
+go test -run TestParseAddressFormatAddressProperty -v -count=1 ./... 2>&1 | head -50
+
+# Or run the deterministic test which uses a fixed seed:
+go test -run TestParseAddressFormatAddressDeterministic -v ./...
+```
+
+The deterministic test (`TestParseAddressFormatAddressDeterministic`) runs a
+fixed set of 100 iterations per property with seed `0xDEADBEEF` and is the one
+executed in CI. If it passes locally but the full property test fails, the
+failure is in the extended search space — increase `MinSuccessfulTests` in the
+deterministic test to narrow it down.
+
+### Capturing regressions
+
+If a property test discovers a bug, capture the failing input as a regression
+fixture in `address_test.go` by adding a new table entry to
+`TestParseAddressRejects` or `TestParseAddressFormatAddressRoundTrip` with the
+exact address string that triggered the failure. This ensures the specific
+case remains covered even if the property test parameters change.
+
 ## What a change needs
 
 - **Tests that can fail.** A test that passes for the wrong reason is worse than
