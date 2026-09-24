@@ -107,3 +107,20 @@ jobs:
             echo "and commit the result, or investigate why the reference output moved."
             exit 1
           fi
+
+  bench:
+    name: signing-path budgets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      # ns/op is deliberately not gated: wall-clock on a shared runner is too
+      # noisy to be evidence. allocs/op and B/op are deterministic and are
+      # compared against testdata/bench/budgets.json.
+      - name: run signing-path benchmarks
+        run: go test -run '^$' -bench . -benchmem -count=1 . | tee bench.out
+      - name: fail on allocation or byte regression
+        run: go run ./scripts/checkbench bench.out testdata/bench/budgets.json
