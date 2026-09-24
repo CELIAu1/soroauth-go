@@ -91,6 +91,37 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `testdata/bench/budgets.json` via `scripts/checkbench`; `ns/op` is reported
   in PRs but never fails the build. See CONTRIBUTING.md § Benchmarks.
 
+### Changed
+
+**Pooled buffers in the entry deep copy**
+
+- `xdrcopy.Copy` — the deep copy every entry-returning function performs
+  before writing — no longer allocates a fresh encoding buffer, encoder,
+  reader and decoder on each call. The round-trip now reuses one pooled
+  `xdr.EncodingBuffer` and one pooled `xdr.BytesDecoder` per call. They are
+  transport scratch only: the copied tree is still allocated fresh (which is
+  what keeps the no-aliasing guarantee), and a buffer is not returned to the
+  pool until the decode has read it. Measured on INTEL XEON PLATINUM 8573C
+  (2 vCPU), linux/amd64, `go test -run '^$' -bench . -benchmem`:
+
+  - `BenchmarkXDRCopy/entry`: 26 allocs / 1632 B → 20 allocs / 1064 B
+  - `BenchmarkXDRCopy/preimage`: 24 allocs / 1472 B → 18 allocs / 856 B
+  - `BenchmarkAuthorizeEntry/v2`: 85 allocs / 5688 B → 73 allocs / 4504 B
+  - `BenchmarkAuthorizeAll`: 1501 allocs / 93505 B → 1348 allocs / 77587 B
+
+- The copy now fails closed if the decode step does not consume exactly the
+  bytes the encode step produced — the generated `UnmarshalBinary` it
+  replaced discarded that count. Two regression fixtures guard the new
+  code: one for that partial-round-trip guard, one for concurrent reuse of
+  the pooled buffers.
+- CI runs the test suite under `-race` (`go test -race ./...`), and the
+  `BenchmarkXDRCopy` budgets sit *below* the pre-pooling cost, so reverting
+  the pooling fails the build rather than only a local run. See
+  CONTRIBUTING.md § Reproducing a budget failure locally.
+
+  **Migration:** none required. Public API unchanged; no emitted signature
+  or entry bytes change — all nine golden vectors pass byte-for-byte.
+
 ## [0.1.0] — 2026-09-16
 
 First release. Unaudited.
