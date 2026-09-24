@@ -79,7 +79,7 @@ Two properties hold throughout and are the reason most of the code exists:
 | `batch.go` | `AuthorizeAll`, all-or-nothing |
 | `expiration.go` | `ExpirationAfter` |
 | `address.go` | `ParseAddress` / `FormatAddress` (G… and C… only) |
-| `errors.go` | The nine exported sentinels |
+| `errors.go` | The nine exported sentinels, plus the three typed address errors (`NoMatchingCredentialNodeError`, `DuplicateDelegateError`, `MissingSignerError`) that wrap them for `errors.As` |
 | `internal/xdrcopy` | Deep copy by XDR round-trip |
 | `cmd/soroauth` | CLI: `payload`, `sign`, `delegates`, `inspect` |
 

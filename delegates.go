@@ -60,7 +60,7 @@ func sortDelegateLevel(nodes []delegateNode) error {
 			if err != nil {
 				address = "<unformattable address>"
 			}
-			return fmt.Errorf("%s: %w", address, ErrDuplicateDelegate)
+			return fmt.Errorf("%s: %w", address, &DuplicateDelegateError{Address: address})
 		}
 	}
 	return nil
@@ -231,7 +231,7 @@ func validateDelegateLevel(nodes []xdr.SorobanDelegateSignature) error {
 				if err != nil {
 					address = "<unformattable address>"
 				}
-				return fmt.Errorf("%s: %w", address, ErrDuplicateDelegate)
+				return fmt.Errorf("%s: %w", address, &DuplicateDelegateError{Address: address})
 			case 1:
 				address, err := FormatAddress(nodes[i].Address)
 				if err != nil {
