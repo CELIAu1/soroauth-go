@@ -10,6 +10,8 @@ import (
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/soroauth/soroauth-go/internal/xdrcopy"
 )
 
 // Signing-path benchmarks (issue #107).
@@ -254,6 +256,48 @@ func BenchmarkAuthorizeEntry(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger,
 				network.TestNetworkPassphrase, ForAddress(leafAddr)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+// BenchmarkXDRCopy measures internal/xdrcopy.Copy, the deep copy every
+// entry-returning function performs before writing anything (issue #108).
+//
+// Two shapes are timed because both are on the signing path:
+//
+//   - entry: a V2 SorobanAuthorizationEntry with a sub-invocation. This is
+//     what AuthorizeEntry copies before it signs.
+//   - preimage: the HashIdPreimage Preimage detaches from the entry so a
+//     later change to the entry cannot alter a derived payload.
+//
+// Reproduce a budget failure locally (see CONTRIBUTING.md):
+//
+//	go test -run '^$' -bench BenchmarkXDRCopy -benchmem -count=1 . | tee /tmp/bench.out
+//	go run ./scripts/checkbench /tmp/bench.out testdata/bench/budgets.json
+func BenchmarkXDRCopy(b *testing.B) {
+	b.Run("entry", func(b *testing.B) {
+		entry := benchDeepEntry(b)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := xdrcopy.Copy(entry); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("preimage", func(b *testing.B) {
+		entry := benchDeepEntry(b)
+		pre, err := Preimage(entry, testValidUntilLedger, network.TestNetworkPassphrase)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := xdrcopy.Copy(pre); err != nil {
 				b.Fatal(err)
 			}
 		}

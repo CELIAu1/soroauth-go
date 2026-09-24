@@ -1,5 +1,5 @@
 {
-  "note": "Alloc and byte budgets for the signing path (issue #107). Baselines measured 2026-09-24 on INTEL XEON PLATINUM 8573C (2 vCPU), go1.27.1 linux/amd64, with ~40% headroom so a Go minor bump or a shared CI runner does not flake. ns/op is never gated. Raising a budget requires a commit body that says which change increased the cost and why it is acceptable. Never lower a budget without a fresh measurement.",
+  "note": "Alloc and byte budgets for the signing path (issue #107) and for the entry deep copy (issue #108). Baselines measured 2026-09-24 on INTEL XEON PLATINUM 8573C (2 vCPU), linux/amd64, under both go1.25.4 (the toolchain CI installs, from the toolchain line in go.mod) and go1.27.1, with ~40% headroom so a Go minor bump or a shared CI runner does not flake. ns/op is never gated. Raising a budget requires a commit body that says which change increased the cost and why it is acceptable. Never lower a budget without a fresh measurement on a machine named in the commit body.",
   "budgets": {
     "BenchmarkPreimage": {
       "allocs": 40,
@@ -24,6 +24,14 @@
     "BenchmarkAuthorizeEntry/delegates_deep": {
       "allocs": 240,
       "bytes": 19000
+    },
+    "BenchmarkXDRCopy/entry": {
+      "allocs": 37,
+      "bytes": 2300
+    },
+    "BenchmarkXDRCopy/preimage": {
+      "allocs": 34,
+      "bytes": 2100
     },
     "BenchmarkAuthorizeAll": {
       "allocs": 2200,
