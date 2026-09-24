@@ -39,6 +39,7 @@ pipe the output to `jq` without stripping usage text.
 | `sign` | `signed_entry` | `error` |
 | `delegates` | `wrapped_entry` | `error` |
 | `inspect` | (the `EntryInfo` struct) | `error` |
+| `cross-compile` | `target`, `size`, `sha256` (one per line) | `error` |
 
 ### Worked invocation — JSON output
 
@@ -59,6 +60,60 @@ SEED=SABC... ./soroauth sign \
   --entry <base64> --valid-until 1234567 \
   --delegate GAAAA... --delegate GBBBB... --json |
   jq -r .wrapped_entry
+```
+
+### Cross-compile — build binaries for multiple targets
+
+The `cross-compile` subcommand builds soroauth for any GOOS/GOARCH pair. It is
+useful for creating release artifacts or verifying that the codebase compiles
+cleanly on all targets.
+
+```sh
+# Human-readable output for the default matrix (all 5 release targets)
+./soroauth cross-compile
+
+# Build only linux/amd64 and windows/amd64, emit JSON (one object per line)
+./soroauth cross-compile --targets linux/amd64,windows/amd64 --json
+
+# Write binaries to a directory instead of just printing metadata
+./soroauth cross-compile --targets linux/amd64 --output-dir ./dist
+```
+
+Sample JSON output:
+
+```json
+{"target":{"goos":"linux","goarch":"amd64","binary":"soroauth"},"size":4190368,"sha256":"1d214924a4717228e2c0b694c4b4d3c3077c29ed036d9b00805e431b4a6e8433"}
+{"target":{"goos":"windows","goarch":"amd64","binary":"soroauth.exe"},"size":4308992,"sha256":"d241d7f7ab8ff20215fbb254abc4eb71643408f62cffc3c0989e552801ae75e4"}
+```
+
+On error, JSON mode emits a single object to stdout with an `error` field
+(and nothing to stderr):
+
+```json
+{"target":{"goos":"invalid","goarch":"target","binary":""},"error":"invalid target \"invalid/target\": unknown GOOS/GOARCH"}
+```
+
+#### CI cross-compilation matrix
+
+The CI workflow (`.github/workflows/ci.yml`) includes a `cross-compile` job
+that runs on every push and PR. It builds for the five release targets in
+parallel with a 5-minute timeout per platform:
+
+- `linux/amd64`
+- `linux/arm64`
+- `darwin/amd64`
+- `darwin/arm64`
+- `windows/amd64`
+
+The job is build-only (no tests, no artifacts uploaded) and runs a smoke test
+(`./soroauth help`) on the native platform to verify the binary runs. Failures
+are named by platform in the workflow UI.
+
+To reproduce a CI failure locally:
+
+```sh
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o soroauth-arm64 ./cmd/soroauth
+./soroauth-arm64 help
 ```
 
 ### Release workflow

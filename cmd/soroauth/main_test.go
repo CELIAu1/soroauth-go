@@ -610,3 +610,136 @@ func TestExitCodeSuccess(t *testing.T) {
 		t.Error("inspect output missing credential_type")
 	}
 }
+
+// TestCrossCompileJSONMode tests that cross-compile --json outputs results only
+// on failure paths (stdout stays results-only).
+func TestCrossCompileJSONMode(t *testing.T) {
+	// Test with invalid target to trigger failure
+	stdout, stderr, err := runCLI(t, "cross-compile", "--targets", "invalid/target", "--json")
+	if err == nil {
+		t.Fatal("expected error for invalid target")
+	}
+
+	// stderr should be empty in JSON mode
+	if stderr != "" {
+		t.Errorf("stderr should be empty in JSON mode, got: %q", stderr)
+	}
+
+	// stdout should be valid JSON lines
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) == 0 {
+		t.Fatal("no JSON output on stdout")
+	}
+
+	var foundError bool
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var out crossCompileResult
+		if err := json.Unmarshal([]byte(line), &out); err != nil {
+			t.Fatalf("stdout line is not valid JSON: %v\nline: %q", err, line)
+		}
+		if out.Error != "" {
+			foundError = true
+			if out.Error == "" {
+				t.Error("JSON error object has empty error field")
+			}
+		}
+	}
+	if !foundError {
+		t.Error("expected at least one result with error field populated")
+	}
+
+	if strings.Contains(stdout, "usage:") {
+		t.Error("stdout contains usage text in JSON error mode")
+	}
+}
+
+// TestCrossCompileSuccessJSON tests successful cross-compile with --json.
+func TestCrossCompileSuccessJSON(t *testing.T) {
+	// Test with a single valid target that should succeed quickly
+	stdout, stderr, err := runCLI(t, "cross-compile", "--targets", "linux/amd64", "--json")
+	if err != nil {
+		t.Fatalf("cross-compile failed: %v", err)
+	}
+
+	if stderr != "" {
+		t.Errorf("stderr should be empty in JSON mode, got: %q", stderr)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 JSON line, got %d", len(lines))
+	}
+
+	var out crossCompileResult
+	if err := json.Unmarshal([]byte(lines[0]), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+	}
+
+	if out.Error != "" {
+		t.Errorf("unexpected error in result: %s", out.Error)
+	}
+	if out.Size <= 0 {
+		t.Error("size should be positive")
+	}
+	if out.SHA256 == "" {
+		t.Error("sha256 should be populated")
+	}
+	if out.Target.GOOS != "linux" || out.Target.GOARCH != "amd64" {
+		t.Errorf("target mismatch: got %s/%s", out.Target.GOOS, out.Target.GOARCH)
+	}
+}
+
+// TestCrossCompileHumanReadable tests non-JSON output.
+func TestCrossCompileHumanReadable(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "cross-compile", "--targets", "linux/amd64")
+	if err != nil {
+		t.Fatalf("cross-compile failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, "OK") {
+		t.Errorf("stdout should contain success marker: %q", stdout)
+	}
+	if strings.Contains(stderr, "FAIL") {
+		t.Errorf("stderr should not contain failures: %q", stderr)
+	}
+}
+
+// TestCrossCompileInvalidTarget tests error handling for invalid targets.
+func TestCrossCompileInvalidTarget(t *testing.T) {
+	stdout, _, err := runCLI(t, "cross-compile", "--targets", "not-a-valid-target")
+	if err == nil {
+		t.Fatal("expected error for invalid target")
+	}
+	if ExitCode(err) != ExitUsageError {
+		t.Errorf("exit code %d, want %d", ExitCode(err), ExitUsageError)
+	}
+	if stdout != "" {
+		t.Errorf("stdout should be empty on non-JSON error, got: %q", stdout)
+	}
+}
+
+// TestCrossCompileNoTargets tests error when no valid targets provided.
+func TestCrossCompileNoTargets(t *testing.T) {
+	// Pass a target that parses but results in no valid targets
+	stdout, _, err := runCLI(t, "cross-compile", "--targets", "invalid/arch", "--json")
+	if err == nil {
+		t.Fatal("expected error for invalid target")
+	}
+	if ExitCode(err) != ExitUsageError {
+		t.Errorf("exit code %d, want %d", ExitCode(err), ExitUsageError)
+	}
+	if stdout == "" {
+		t.Error("stdout should contain JSON error")
+	}
+	var out crossCompileResult
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+	}
+	if out.Error == "" {
+		t.Error("JSON error object has empty error field")
+	}
+}

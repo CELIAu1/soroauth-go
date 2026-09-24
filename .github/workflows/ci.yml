@@ -31,6 +31,45 @@ jobs:
       - name: test
         run: go test ./...
 
+  cross-compile:
+    name: cross-compile release targets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: build for ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          binary_name=soroauth
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            binary_name=soroauth.exe
+          fi
+          go build -ldflags="-s -w" -o "${binary_name}" ./cmd/soroauth
+          # Smoke test: run --help to verify the binary runs (only for native platform)
+          if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "amd64" ]; then
+            ./${binary_name} help >/dev/null
+          fi
+        timeout-minutes: 5
+
   golden-drift:
     name: golden vectors are reproducible
     runs-on: ubuntu-latest
