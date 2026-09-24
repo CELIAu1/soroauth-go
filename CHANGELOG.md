@@ -33,8 +33,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Go doc examples for each of the three typed errors, showing the
   `errors.Is` + `errors.As` recovery pattern.
-- Signing-path benchmarks (`BenchmarkAuthorizeEntry`, `BenchmarkPreimage`,
-  `BenchmarkPayload`) to guard against performance regressions.
+- Signing-path benchmarks covering `Preimage`, `Payload`, `AuthorizeEntry` on
+  all three arms (legacy, V2, flat delegates, depth-8 delegate chain),
+  `AuthorizeAll` over a 12-entry realistic batch, and
+  `AuthorizeInvocation`. CI gates allocs/op and B/op against
+  `testdata/bench/budgets.json` via `scripts/checkbench`; `ns/op` is reported
+  in PRs but never fails the build. See CONTRIBUTING.md § Benchmarks.
 
 ## [0.1.0] — 2026-09-16
 

@@ -1,0 +1,37 @@
+{
+  "note": "Alloc and byte budgets for the signing path (issue #107). Baselines measured 2026-09-24 on INTEL XEON PLATINUM 8573C (2 vCPU), go1.27.1 linux/amd64, with ~40% headroom so a Go minor bump or a shared CI runner does not flake. ns/op is never gated. Raising a budget requires a commit body that says which change increased the cost and why it is acceptable. Never lower a budget without a fresh measurement.",
+  "budgets": {
+    "BenchmarkPreimage": {
+      "allocs": 40,
+      "bytes": 2400
+    },
+    "BenchmarkPayload": {
+      "allocs": 14,
+      "bytes": 800
+    },
+    "BenchmarkAuthorizeEntry/legacy": {
+      "allocs": 120,
+      "bytes": 8000
+    },
+    "BenchmarkAuthorizeEntry/v2": {
+      "allocs": 120,
+      "bytes": 8000
+    },
+    "BenchmarkAuthorizeEntry/delegates": {
+      "allocs": 160,
+      "bytes": 12000
+    },
+    "BenchmarkAuthorizeEntry/delegates_deep": {
+      "allocs": 240,
+      "bytes": 19000
+    },
+    "BenchmarkAuthorizeAll": {
+      "allocs": 2200,
+      "bytes": 135000
+    },
+    "BenchmarkAuthorizeInvocation": {
+      "allocs": 140,
+      "bytes": 9000
+    }
+  }
+}

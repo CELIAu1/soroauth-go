@@ -3,6 +3,7 @@ package soroauth
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -10,6 +11,22 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
+
+// Signing-path benchmarks (issue #107).
+//
+// Coverage required by the issue:
+//   - Preimage, Payload
+//   - AuthorizeEntry on all three signing arms (legacy, V2, delegates)
+//   - AuthorizeAll over a realistic multi-entry, multi-signer batch
+//   - a deep delegate tree (recursive walk + deep copy)
+//
+// ns/op is machine-dependent and is never used as a CI gate. Allocs/op and
+// B/op are deterministic for a given Go version and are gated by
+// testdata/bench/budgets.json via scripts/checkbench (CI job "bench").
+//
+// Reproduce locally:
+//   go test -run '^$' -bench . -benchmem -count=1 . | tee /tmp/bench.out
+//   go run ./scripts/checkbench /tmp/bench.out testdata/bench/budgets.json
 
 // benchKeypair derives a deterministic public test keypair from a label.
 func benchKeypair(b *testing.B, label string) *keypair.Full {
@@ -32,58 +49,118 @@ func benchContractAddress(b *testing.B, label string) string {
 	return address
 }
 
-// benchEntry returns a deterministic V2 address entry for signing benchmarks.
-func benchEntry(b *testing.B) xdr.SorobanAuthorizationEntry {
+// benchInvocation returns a small non-trivial call tree (contract call with
+// one argument and one sub-invocation) so Preimage exercises recursive encoding.
+func benchInvocation(b *testing.B) xdr.SorobanAuthorizedInvocation {
 	b.Helper()
-	addr, err := ParseAddress(benchKeypair(b, "soroauth-bench-signer").Address())
-	if err != nil {
-		b.Fatalf("parsing the bench signer address: %v", err)
-	}
 	contract, err := ParseAddress(benchContractAddress(b, "soroauth-bench-contract"))
 	if err != nil {
 		b.Fatalf("parsing the bench contract address: %v", err)
 	}
+	sub, err := ParseAddress(benchContractAddress(b, "soroauth-bench-subcontract"))
+	if err != nil {
+		b.Fatalf("parsing the bench sub-contract address: %v", err)
+	}
 	amount := xdr.Int64(100)
-	return xdr.SorobanAuthorizationEntry{
-		Credentials: xdr.SorobanCredentials{
-			Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
-			AddressV2: &xdr.SorobanAddressCredentials{
-				Address:   addr,
-				Nonce:     42,
-				Signature: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: newScVec()},
+	return xdr.SorobanAuthorizedInvocation{
+		Function: xdr.SorobanAuthorizedFunction{
+			Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+			ContractFn: &xdr.InvokeContractArgs{
+				ContractAddress: contract,
+				FunctionName:    xdr.ScSymbol("transfer"),
+				Args:            []xdr.ScVal{{Type: xdr.ScValTypeScvI64, I64: &amount}},
 			},
 		},
-		RootInvocation: xdr.SorobanAuthorizedInvocation{
+		SubInvocations: []xdr.SorobanAuthorizedInvocation{{
 			Function: xdr.SorobanAuthorizedFunction{
 				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
 				ContractFn: &xdr.InvokeContractArgs{
-					ContractAddress: contract,
-					FunctionName:    xdr.ScSymbol("transfer"),
-					Args:            []xdr.ScVal{{Type: xdr.ScValTypeScvI64, I64: &amount}},
+					ContractAddress: sub,
+					FunctionName:    xdr.ScSymbol("approve"),
+					Args:            []xdr.ScVal{},
 				},
 			},
-		},
+		}},
 	}
 }
 
-// BenchmarkAuthorizeEntry measures the full signing path: deep copy, preimage,
-// payload hash, signer.Sign, and writing the signature onto the entry.
-func BenchmarkAuthorizeEntry(b *testing.B) {
-	entry := benchEntry(b)
-	signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
-	ctx := context.Background()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
-			b.Fatal(err)
+// benchAddressEntry builds an unsigned address-arm entry (legacy or V2) for
+// signerLabel's account.
+func benchAddressEntry(b *testing.B, arm xdr.SorobanCredentialsType, signerLabel string, nonce int64) xdr.SorobanAuthorizationEntry {
+	b.Helper()
+	addr, err := ParseAddress(benchKeypair(b, signerLabel).Address())
+	if err != nil {
+		b.Fatalf("parsing the bench signer address: %v", err)
+	}
+	credentials := xdr.SorobanAddressCredentials{
+		Address:   addr,
+		Nonce:     xdr.Int64(nonce),
+		Signature: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: newScVec()},
+	}
+	entry := xdr.SorobanAuthorizationEntry{
+		RootInvocation: benchInvocation(b),
+	}
+	switch arm {
+	case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+		entry.Credentials = xdr.SorobanCredentials{
+			Type:    arm,
+			Address: &credentials,
 		}
+	case xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2:
+		entry.Credentials = xdr.SorobanCredentials{
+			Type:      arm,
+			AddressV2: &credentials,
+		}
+	default:
+		b.Fatalf("benchAddressEntry does not build arm %v", arm)
 	}
+	return entry
 }
 
-// BenchmarkPreimage measures HashIdPreimage construction alone.
+// benchDelegateChain builds a delegates-arm entry whose delegate tree is a
+// single chain of the requested depth under the top-level account: top → d1 →
+// d2 → … → dN. The top-level signature is Void (CAP-71-01 allows it when only
+// delegates authenticate).
+//
+// It returns the wrapped entry, the keypair for the deepest delegate (so a
+// caller can force the full recursive node walk with ForAddress), and that
+// deepest address.
+func benchDelegateChain(b *testing.B, depth int) (xdr.SorobanAuthorizationEntry, *keypair.Full, string) {
+	b.Helper()
+	if depth < 1 {
+		b.Fatalf("delegate chain depth must be >= 1, got %d", depth)
+	}
+
+	// Deepest first, so each level's Nested is already built.
+	var leaf Delegate
+	leafKP := benchKeypair(b, fmt.Sprintf("soroauth-bench-delegate-%d", depth))
+	leaf = Delegate{Address: leafKP.Address()}
+	for i := depth - 1; i >= 1; i-- {
+		kp := benchKeypair(b, fmt.Sprintf("soroauth-bench-delegate-%d", i))
+		leaf = Delegate{Address: kp.Address(), Nested: []Delegate{leaf}}
+	}
+
+	base := benchAddressEntry(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+		"soroauth-bench-signer", 42)
+	wrapped, err := WithDelegates(base, testValidUntilLedger, []Delegate{leaf}, nil)
+	if err != nil {
+		b.Fatalf("WithDelegates: %v", err)
+	}
+	return wrapped, leafKP, leafKP.Address()
+}
+
+// benchDeepEntry is the V2 single-signer entry used by Preimage, Payload and
+// the single-arm AuthorizeEntry case.
+func benchDeepEntry(b *testing.B) xdr.SorobanAuthorizationEntry {
+	b.Helper()
+	return benchAddressEntry(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+		"soroauth-bench-signer", 42)
+}
+
+// BenchmarkPreimage measures HashIdPreimage construction alone (V2 arm).
 func BenchmarkPreimage(b *testing.B) {
-	entry := benchEntry(b)
+	entry := benchDeepEntry(b)
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := Preimage(entry, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
@@ -94,14 +171,170 @@ func BenchmarkPreimage(b *testing.B) {
 
 // BenchmarkPayload measures SHA-256 over the marshaled preimage alone.
 func BenchmarkPayload(b *testing.B) {
-	entry := benchEntry(b)
+	entry := benchDeepEntry(b)
 	pre, err := Preimage(entry, testValidUntilLedger, network.TestNetworkPassphrase)
 	if err != nil {
 		b.Fatal(err)
 	}
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := Payload(pre); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkAuthorizeEntry measures the full signing path on each of the three
+// signing arms: context check, deep copy, preimage, payload hash, Sign, and
+// writing the signature onto matching nodes.
+func BenchmarkAuthorizeEntry(b *testing.B) {
+	ctx := context.Background()
+
+	b.Run("legacy", func(b *testing.B) {
+		entry := benchAddressEntry(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+			"soroauth-bench-signer", 42)
+		signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("v2", func(b *testing.B) {
+		entry := benchDeepEntry(b)
+		signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	// Small flat delegate tree (3 delegates) — the common case.
+	b.Run("delegates", func(b *testing.B) {
+		base := benchAddressEntry(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+			"soroauth-bench-signer", 43)
+		d1 := benchKeypair(b, "soroauth-bench-delegate-1")
+		d2 := benchKeypair(b, "soroauth-bench-delegate-2")
+		d3 := benchKeypair(b, "soroauth-bench-delegate-3")
+		entry, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+			{Address: d1.Address()},
+			{Address: d2.Address()},
+			{Address: d3.Address()},
+		}, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		// Sign a delegate so the walk covers top-level + all three nodes.
+		signer := NewEd25519Signer(d2)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger,
+				network.TestNetworkPassphrase, ForAddress(d2.Address())); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	// Deep chain: the path that recurses through NestedDelegates and
+	// deep-copies the whole tree on every call.
+	b.Run("delegates_deep", func(b *testing.B) {
+		const depth = 8
+		entry, leafKP, leafAddr := benchDelegateChain(b, depth)
+		signer := NewEd25519Signer(leafKP)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger,
+				network.TestNetworkPassphrase, ForAddress(leafAddr)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+// batchSignerLabel is the i-th deterministic signer label for the realistic batch.
+func batchSignerLabel(i int) string {
+	return fmt.Sprintf("soroauth-bench-batch-signer-%d", i)
+}
+
+// benchRealisticBatch builds a 12-entry batch across three arms with four
+// signers — the shape a backend might see from one simulateTransaction with
+// several require_auth sites.
+//
+//	x4 legacy, x4 V2, x4 delegates (2 flat delegates each);
+//	signers rotate over four accounts so AuthorizeAll has to match each entry.
+func benchRealisticBatch(b *testing.B) (entries []xdr.SorobanAuthorizationEntry, signers []Signer) {
+	b.Helper()
+	const n = 12
+	arms := []xdr.SorobanCredentialsType{
+		xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+		xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+	}
+	entries = make([]xdr.SorobanAuthorizationEntry, 0, n)
+	for i := 0; i < n; i++ {
+		label := batchSignerLabel(i % 4)
+		arm := arms[i%2]
+		if i%4 == 3 {
+			// Every fourth entry is a small delegates entry.
+			base := benchAddressEntry(b, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, label, int64(100+i))
+			dA := benchKeypair(b, fmt.Sprintf("soroauth-bench-batch-delegate-a-%d", i))
+			dB := benchKeypair(b, fmt.Sprintf("soroauth-bench-batch-delegate-b-%d", i))
+			wrapped, err := WithDelegates(base, testValidUntilLedger, []Delegate{
+				{Address: dA.Address()},
+				{Address: dB.Address()},
+			}, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			entries = append(entries, wrapped)
+			continue
+		}
+		entries = append(entries, benchAddressEntry(b, arm, label, int64(100+i)))
+	}
+
+	signers = make([]Signer, 0, 4)
+	for i := 0; i < 4; i++ {
+		signers = append(signers, NewEd25519Signer(benchKeypair(b, batchSignerLabel(i))))
+	}
+	return entries, signers
+}
+
+// BenchmarkAuthorizeAll measures the batch signing path over a realistic
+// 12-entry, 4-signer mix of legacy, V2 and delegates entries.
+func BenchmarkAuthorizeAll(b *testing.B) {
+	entries, signers := benchRealisticBatch(b)
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := AuthorizeAll(ctx, entries, signers, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkAuthorizeInvocation measures building and signing from scratch (V2).
+func BenchmarkAuthorizeInvocation(b *testing.B) {
+	signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
+	ctx := context.Background()
+	params := AuthorizeInvocationParams{
+		Signer:            signer,
+		Invocation:        benchInvocation(b),
+		ValidUntilLedger:  testValidUntilLedger,
+		NetworkPassphrase: network.TestNetworkPassphrase,
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := AuthorizeInvocation(ctx, params); err != nil {
 			b.Fatal(err)
 		}
 	}
