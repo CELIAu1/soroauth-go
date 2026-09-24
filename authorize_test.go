@@ -3,7 +3,9 @@ package soroauth
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -301,6 +303,196 @@ func TestAuthorizeEntryResignGuard(t *testing.T) {
 			t.Errorf("a void placeholder was treated as a signature: %v", err)
 		}
 	})
+}
+
+// TestAuthorizeEntryResignGuardScoped is the delegates-arm case AllowResign's
+// address scoping exists for: a caller replacing one delegate's signature
+// must not thereby be able to overwrite a different, unrelated delegate's
+// signature in a separate AuthorizeEntry call against the same entry.
+func TestAuthorizeEntryResignGuardScoped(t *testing.T) {
+	entry := delegatesFixture(t)
+	first := testKeypair(t, "soroauth-delegate-1").Address()
+	second := testKeypair(t, "soroauth-delegate-2").Address()
+
+	signed, err := AuthorizeEntry(context.Background(), entry,
+		NewEd25519Signer(keypairForAddress(t, first)),
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(first))
+	if err != nil {
+		t.Fatalf("signing the first delegate returned an unexpected error: %v", err)
+	}
+	signed, err = AuthorizeEntry(context.Background(), signed,
+		NewEd25519Signer(keypairForAddress(t, second)),
+		testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(second))
+	if err != nil {
+		t.Fatalf("signing the second delegate returned an unexpected error: %v", err)
+	}
+
+	t.Run("resigning the named address is allowed", func(t *testing.T) {
+		// A SignerFunc returning a fixed, recognisable ScVal makes the
+		// overwrite observable regardless of Ed25519's determinism (signing
+		// the same payload twice with the same key produces the same bytes,
+		// which would make a real overwrite indistinguishable from a no-op).
+		markerBytes := xdr.ScBytes{0xAA, 0xBB}
+		marker := xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &markerBytes}
+		markerSigner := SignerFunc(first, func(context.Context, xdr.HashIdPreimage, [32]byte) (xdr.ScVal, error) {
+			return marker, nil
+		})
+
+		resigned, err := AuthorizeEntry(context.Background(), signed, markerSigner,
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(first),
+			AllowResign(first))
+		if err != nil {
+			t.Fatalf("AuthorizeEntry refused a resign scoped to its own target: %v", err)
+		}
+
+		after := signatureAt(t, resigned, first)
+		if len(after) != 1 {
+			t.Fatalf("got %d signature nodes for %s, want 1", len(after), first)
+		}
+		if !reflect.DeepEqual(after[0], marker) {
+			t.Errorf("the named address was not overwritten with the new signature: got %+v", after[0])
+		}
+
+		// The other delegate, not named in the AllowResign scope, must be
+		// completely untouched — not just "still signed", but byte-identical.
+		beforeOther := signatureAt(t, signed, second)
+		afterOther := signatureAt(t, resigned, second)
+		if !reflect.DeepEqual(beforeOther, afterOther) {
+			t.Error("resigning one address's node changed an unrelated delegate's signature")
+		}
+	})
+
+	t.Run("resigning an address outside the scope still refuses", func(t *testing.T) {
+		got, err := AuthorizeEntry(context.Background(), signed,
+			NewEd25519Signer(keypairForAddress(t, second)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(second),
+			AllowResign(first)) // scope names a different address
+		if err == nil {
+			t.Fatalf("AllowResign(first) let a call targeting second overwrite it, returning %+v", got)
+		}
+		if !errors.Is(err, ErrAlreadySigned) {
+			t.Errorf("error %q does not match ErrAlreadySigned", err)
+		}
+	})
+
+	t.Run("an unscoped AllowResign still resigns anything, unchanged behaviour", func(t *testing.T) {
+		if _, err := AuthorizeEntry(context.Background(), signed,
+			NewEd25519Signer(keypairForAddress(t, second)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(second),
+			AllowResign()); err != nil {
+			t.Errorf("AllowResign() with no addresses refused a resign: %v", err)
+		}
+	})
+
+	t.Run("a malformed scope address fails closed", func(t *testing.T) {
+		got, err := AuthorizeEntry(context.Background(), signed,
+			NewEd25519Signer(keypairForAddress(t, first)),
+			testValidUntilLedger, network.TestNetworkPassphrase, ForAddress(first),
+			AllowResign("not-an-address"))
+		if err == nil {
+			t.Fatalf("AuthorizeEntry accepted a malformed AllowResign address, returning %+v", got)
+		}
+	})
+
+	t.Run("the delegates expiration guard still cannot be lifted by scoping", func(t *testing.T) {
+		got, err := AuthorizeEntry(context.Background(), signed,
+			NewEd25519Signer(keypairForAddress(t, first)),
+			testValidUntilLedger+1, network.TestNetworkPassphrase, ForAddress(first),
+			AllowResign(first))
+		if err == nil {
+			t.Fatalf("a scoped AllowResign lifted the delegates expiration guard, returning %+v", got)
+		}
+		if !errors.Is(err, ErrInvalidExpiration) {
+			t.Errorf("error %q does not match ErrInvalidExpiration", err)
+		}
+	})
+}
+
+// ExampleAllowResign shows AllowResign scoped to one delegate's address.
+// Resigning that address is permitted; a separate call resigning a different
+// delegate in the same entry is still refused, even though it also passes
+// AllowResign, because the scope names someone else.
+func ExampleAllowResign() {
+	d1, err := keypair.FromRawSeed(sha256.Sum256([]byte("soroauth-example-delegate-1")))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	d2, err := keypair.FromRawSeed(sha256.Sum256([]byte("soroauth-example-delegate-2")))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	account, err := keypair.FromRawSeed(sha256.Sum256([]byte("soroauth-example-account")))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	address, err := ParseAddress(account.Address())
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	contract, err := ParseAddress(testContractAddress(&testing.T{}, "soroauth-example-contract"))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	entry := xdr.SorobanAuthorizationEntry{
+		Credentials: xdr.SorobanCredentials{
+			Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2,
+			AddressV2: &xdr.SorobanAddressCredentials{
+				Address:   address,
+				Nonce:     1,
+				Signature: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: newScVec()},
+			},
+		},
+		RootInvocation: xdr.SorobanAuthorizedInvocation{
+			Function: xdr.SorobanAuthorizedFunction{
+				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+				ContractFn: &xdr.InvokeContractArgs{
+					ContractAddress: contract,
+					FunctionName:    xdr.ScSymbol("transfer"),
+					Args:            []xdr.ScVal{},
+				},
+			},
+		},
+	}
+
+	const validUntil = 1000
+	passphrase := network.TestNetworkPassphrase
+
+	wrapped, err := WithDelegates(entry, validUntil,
+		[]Delegate{{Address: d1.Address()}, {Address: d2.Address()}}, nil)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	ctx := context.Background()
+	signed, err := AuthorizeEntry(ctx, wrapped, NewEd25519Signer(d1), validUntil, passphrase, ForAddress(d1.Address()))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	signed, err = AuthorizeEntry(ctx, signed, NewEd25519Signer(d2), validUntil, passphrase, ForAddress(d2.Address()))
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	_, err = AuthorizeEntry(ctx, signed, NewEd25519Signer(d1), validUntil, passphrase,
+		ForAddress(d1.Address()), AllowResign(d1.Address()))
+	fmt.Println("resign d1, scoped to d1:", err)
+
+	_, err = AuthorizeEntry(ctx, signed, NewEd25519Signer(d2), validUntil, passphrase,
+		ForAddress(d2.Address()), AllowResign(d1.Address()))
+	fmt.Println("resign d2, scoped to d1, refused:", errors.Is(err, ErrAlreadySigned))
+
+	// Output:
+	// resign d1, scoped to d1: <nil>
+	// resign d2, scoped to d1, refused: true
 }
 
 func TestAuthorizeEntryRejects(t *testing.T) {

@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Actions are pinned to full commit SHAs (see .github/workflows/*.yml) so a
+  # compromised or retagged action cannot silently run with access to this
+  # repository's CI. Dependabot understands that pin format for the
+  # github-actions ecosystem: it opens a PR that updates both the SHA and the
+  # trailing version comment together, so the two can never drift apart.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"

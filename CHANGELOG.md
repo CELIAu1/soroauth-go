@@ -7,7 +7,58 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added (docs correctness)
+
+- The README's three Go examples (Quickstart, Delegates, the inline
+  `AllowResign` snippet) are now extracted verbatim, at test time, from real,
+  compiling source in `internal/readmesnippets/`, instead of living only as
+  free-standing markdown text nothing checked. `TestReadmeSnippetsMatchTheirSource`
+  fails and names the snippet if the README drifts from its source; the
+  source itself is compiled by the `go build ./...` / `go vet ./...` CI
+  already runs, since it carries no build tag, so a snippet that stops
+  compiling fails the same way any other compile error does. See
+  CONTRIBUTING.md § Verifying README snippets compile. In the course of this,
+  the Quickstart and Delegates examples gained the error checks they were
+  previously missing (three unchecked errors in Quickstart; the Delegates
+  loop swallowed its error entirely, which would not even have compiled once
+  wrapped in a real function — `declared and not used: err`).
+
+### Security
+
+- CI: every GitHub Action is now pinned to a full commit SHA (with the
+  version recorded in a trailing comment), replacing mutable tags like
+  `@v7`. A retagged or compromised action can no longer silently gain this
+  repository's CI permissions. `.github/dependabot.yml` keeps the pins
+  current by opening a PR that updates the SHA and its comment together.
+
 ### Added
+
+**`soroauth doctor`**
+
+- New CLI subcommand checking the local environment for the failures that are
+  usually the real cause of a confusing `sign` or `payload` error: an old Go
+  toolchain, an unreachable RPC endpoint, or a mistyped `--secret-env`
+  variable name. Reports each check as pass/fail, with `--json` for
+  structured output, and never prints a secret's value — only whether it is
+  set. Exit code reflects overall status (0 all passed, 1 something failed).
+
+**Scoped `AllowResign`**
+
+- `AllowResign` now accepts optional addresses:
+  `AllowResign(addresses ...string)`. With no arguments it behaves exactly as
+  before — the guard is lifted for whatever address the call targets. With one
+  or more addresses, the guard is lifted only when the call's target
+  (`ForAddress`, or the signer's own `Address()`) is among them; a target that
+  is not named still refuses with `ErrAlreadySigned`, even though
+  `AllowResign` was passed. This lets a caller replacing one delegate's
+  signature grant the override to just that address, instead of every
+  already-signed node an `AuthorizeEntry` call in the same batch might touch.
+  The delegates arm's expiration guard (§5.4) is unaffected either way: no
+  address list can lift it.
+
+  **Migration:** none required. `AllowResign()` with no arguments is
+  unchanged, so every existing call site keeps its current behaviour. No
+  emitted signature or entry bytes change, so golden vectors are unaffected.
 
 **Typed address errors**
 

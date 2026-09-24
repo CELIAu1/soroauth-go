@@ -39,6 +39,7 @@ pipe the output to `jq` without stripping usage text.
 | `sign` | `signed_entry` | `error` |
 | `delegates` | `wrapped_entry` | `error` |
 | `inspect` | (the `EntryInfo` struct) | `error` |
+| `doctor` | `checks`, `ok` | (checks carry their own `pass`/`detail`; see below) |
 | `cross-compile` | `target`, `size`, `sha256` (one per line) | `error` |
 
 ### Worked invocation — JSON output
@@ -61,6 +62,33 @@ SEED=SABC... ./soroauth sign \
   --delegate GAAAA... --delegate GBBBB... --json |
   jq -r .wrapped_entry
 ```
+
+### Doctor — check the local environment for common first-run problems
+
+Most first-run problems are environmental — an unreachable RPC endpoint, a
+mistyped secret variable name, a Go toolchain older than this module needs —
+and the error from `sign` or `payload` does not say so. `doctor` checks three
+things and reports each as pass or fail: never printing a secret, only
+whether it is set.
+
+```sh
+# Human-readable
+./soroauth doctor --rpc-url https://soroban-testnet.stellar.org --secret-env SEED
+
+# JSON
+./soroauth doctor --rpc-url https://soroban-testnet.stellar.org --secret-env SEED --json
+```
+
+```json
+{"checks":[{"name":"go toolchain","pass":true,"detail":"go1.25.4"},{"name":"network","pass":true,"detail":"https://soroban-testnet.stellar.org reachable (HTTP 405)"},{"name":"secret env: SEED","pass":true,"detail":"SEED is set"}],"ok":true}
+```
+
+`--secret-env` is optional; when omitted, that check is skipped rather than
+reported as a failure. `--rpc-url` defaults to the public testnet RPC, and any
+HTTP response — including a non-2xx status — counts the network check as
+passing, since it proves DNS, TCP and TLS all worked; only a transport-level
+error (DNS failure, connection refused, timeout) fails it. Exit code is 0 when
+every check passes, 1 if any fails.
 
 ### Cross-compile — build binaries for multiple targets
 
@@ -151,6 +179,9 @@ sim, err := client.SimulateTransaction(ctx, rpc.SimulateTransactionRequest{
     Transaction: encodedTx,
     AuthMode:    rpc.AuthModeRecord,
 })
+if err != nil {
+    return err
+}
 
 entries := make([]xdr.SorobanAuthorizationEntry, 0, len(*sim.Results[0].AuthXDR))
 for _, encoded := range *sim.Results[0].AuthXDR {
@@ -162,7 +193,13 @@ for _, encoded := range *sim.Results[0].AuthXDR {
 }
 
 ledger, err := client.GetLatestLedger(ctx)
+if err != nil {
+    return err
+}
 validUntil, err := soroauth.ExpirationAfter(ledger.Sequence, 1000)
+if err != nil {
+    return err
+}
 
 signed, err := soroauth.AuthorizeAll(ctx, entries,
     []soroauth.Signer{soroauth.NewEd25519Signer(sender)},
@@ -173,6 +210,9 @@ if err != nil {
 
 op.Auth = signed // then re-simulate in enforce mode, assemble, sign, submit
 ```
+
+This example is compiled by CI as `internal/readmesnippets/quickstart.go` —
+see [Verifying README snippets](CONTRIBUTING.md#verifying-readme-snippets-compile).
 
 Source-account entries pass straight through untouched, so you can hand over
 everything simulation returned without sorting by arm first.
@@ -209,13 +249,22 @@ wrapped, err := soroauth.WithDelegates(entry, validUntil,
         {Address: d1},
         {Address: d2, Nested: []soroauth.Delegate{{Address: d3}}},
     }, nil) // nil top-level signature → ScvVoid, which CAP-71-01 permits
+if err != nil {
+    return wrapped, err
+}
 
 for _, kp := range []*keypair.Full{k1, k2, k3} {
     wrapped, err = soroauth.AuthorizeEntry(ctx, wrapped,
         soroauth.NewEd25519Signer(kp), validUntil, passphrase,
         soroauth.ForAddress(kp.Address()))
+    if err != nil {
+        return wrapped, err
+    }
 }
 ```
+
+This example is compiled by CI as `internal/readmesnippets/delegates.go` — see
+[Verifying README snippets](CONTRIBUTING.md#verifying-readme-snippets-compile).
 
 Each delegates array is sorted by the XDR encoding of the address and checked
 for duplicates within that level, as CAP-71-01 requires; the same address at two
@@ -225,6 +274,23 @@ carrying that address.
 Because every node commits to the same payload, the expiration is fixed once any
 node is signed: signing another node at a different `validUntilLedger` would
 leave the entry's signatures disagreeing, so soroauth refuses it.
+
+Replacing one delegate's signature needs `AllowResign`, scoped to that
+delegate's address so the override does not also apply to a different call
+touching another node in the same entry:
+
+```go
+resigned, err := soroauth.AuthorizeEntry(ctx, wrapped, soroauth.NewEd25519Signer(k1),
+    validUntil, passphrase, soroauth.ForAddress(d1), soroauth.AllowResign(d1))
+```
+
+This example is compiled by CI as `internal/readmesnippets/allowresign.go` —
+see [Verifying README snippets](CONTRIBUTING.md#verifying-readme-snippets-compile).
+
+`AllowResign()` with no arguments keeps its original, unscoped meaning: the
+guard is lifted for whatever address that call targets. Naming one or more
+addresses restricts it to those; a target outside the list still refuses with
+`ErrAlreadySigned`. Either way, the expiration guard above is never lifted.
 
 One consequence worth stating plainly: the delegates arm and V2 share the same
 address-bound preimage, so the same address, nonce, invocation, expiration and

@@ -12,9 +12,10 @@ import (
 
 // authorizeConfig holds the optional behaviour of AuthorizeEntry.
 type authorizeConfig struct {
-	targetAddress string
-	hasTarget     bool
-	allowResign   bool
+	targetAddress        string
+	hasTarget            bool
+	allowResign          bool
+	allowResignAddresses []string
 }
 
 // AuthorizeOption adjusts how AuthorizeEntry behaves.
@@ -45,10 +46,46 @@ func ForAddress(addr string) AuthorizeOption {
 // one node under a different expiration silently invalidates every other node's
 // signature. The entry then still looks complete and fails only on-chain.
 //
-// Even with AllowResign, the delegates arm refuses to re-sign at an expiration
-// that disagrees with one already committed to by other signatures.
-func AllowResign() AuthorizeOption {
-	return func(c *authorizeConfig) { c.allowResign = true }
+// With no arguments, AllowResign lifts the guard for whatever address this
+// call targets (ForAddress, or the signer's own Address()) — the original,
+// unscoped behaviour. With one or more addresses, it lifts the guard only when
+// the call's target is among them; a target that is not named still refuses
+// with ErrAlreadySigned even though AllowResign was passed. This matters for a
+// caller replacing one party's signature in a delegates entry: without
+// scoping, a single AllowResign() shared across every AuthorizeEntry call in
+// the batch would also silently permit overwriting every other delegate's
+// signature, not just the one being replaced. Naming the address makes the
+// permission specific to that node.
+//
+// Every address is parsed with ParseAddress and compared by the address's XDR
+// encoding, the same comparison AuthorizeEntry uses to find a target's
+// credential node, so a malformed address is rejected rather than silently
+// never matching.
+//
+// Even with AllowResign, and regardless of scoping, the delegates arm refuses
+// to re-sign at an expiration that disagrees with one already committed to by
+// other signatures: that guard protects the *other* nodes, not the one named
+// here, so no address list can lift it.
+func AllowResign(addresses ...string) AuthorizeOption {
+	return func(c *authorizeConfig) {
+		c.allowResign = true
+		c.allowResignAddresses = addresses
+	}
+}
+
+// resignAllowedFor reports whether AllowResign's scope covers target, given
+// its XDR-encoded address and the encoded addresses AllowResign named. An
+// empty scope means AllowResign was given no addresses, so it is unscoped.
+func resignAllowedFor(targetEncoded []byte, scope [][]byte) bool {
+	if len(scope) == 0 {
+		return true
+	}
+	for _, encoded := range scope {
+		if bytes.Equal(targetEncoded, encoded) {
+			return true
+		}
+	}
+	return false
 }
 
 // isSigned reports whether a credential node's signature field holds a real
@@ -230,6 +267,24 @@ func AuthorizeEntry(
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
 	}
 
+	// AllowResign's scope is resolved against parsed addresses, the same way
+	// the target is, so a malformed address here fails closed rather than
+	// silently never matching.
+	var allowResignScope [][]byte
+	for _, addr := range config.allowResignAddresses {
+		parsed, err := ParseAddress(addr)
+		if err != nil {
+			return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
+				"soroauth: authorize entry: AllowResign address %q: %w", addr, err)
+		}
+		encoded, err := addressBytes(parsed)
+		if err != nil {
+			return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("soroauth: authorize entry: %w", err)
+		}
+		allowResignScope = append(allowResignScope, encoded)
+	}
+	resignAllowed := config.allowResign && resignAllowedFor(targetEncoded, allowResignScope)
+
 	// Work on a copy from here on, so the caller's entry is never written to
 	// and nothing partial can escape alongside an error.
 	signed, err := xdrcopy.Copy(entry)
@@ -293,7 +348,7 @@ func AuthorizeEntry(
 
 	// Checked before signing rather than after, so a remote signer is never
 	// asked to sign something that is about to be thrown away.
-	if !config.allowResign {
+	if !resignAllowed {
 		for _, match := range matches {
 			if isSigned(*match) {
 				return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
