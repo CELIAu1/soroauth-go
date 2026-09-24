@@ -146,6 +146,14 @@ case remains covered even if the property test parameters change.
   deep-copies first and has a test proving the input's bytes are unchanged.
 - **Errors that name the sentinel.** Wrap with
   `fmt.Errorf("soroauth: <operation>: %w", err)` and match with `errors.Is`.
+- **Context is checked and passed down, never dropped.** Every exported
+  function that takes a `context.Context` as its first parameter must check
+  `ctx.Err()` before doing work — so a cancelled context fails closed even on
+  a path that never reaches a signer (a source-account entry, an empty
+  batch) — and must pass that same context, unchanged, to every call that can
+  block or produce a signature, in particular `Signer.Sign`. Every such
+  function has a cancellation test that asserts `context.Canceled` and that
+  the signer was not invoked; add one for any new context-taking function.
 - **Fail closed.** Where the protocol or the caller's intent is ambiguous,
   refuse and return an error rather than guess. Say which reading you chose in
   the commit message.

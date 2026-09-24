@@ -5,6 +5,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+**Context cancellation is checked at every layer**
+
+- `AuthorizeEntry`, `AuthorizeAll` and `AuthorizeInvocation` now check
+  `ctx.Err()` before doing any work, so a cancelled context (or an expired
+  deadline) fails closed with `context.Canceled` / `context.DeadlineExceeded`
+  on **every** path — including the source-account pass-through, an empty
+  batch, and error paths that never reach a `Signer` — and without consuming
+  a nonce in `AuthorizeInvocation`. Previously only paths that called
+  `Signer.Sign` observed cancellation; a cancelled call against a
+  source-account entry or an empty batch returned success.
+- All three functions pass the caller's context unchanged to `Signer.Sign`
+  (proven by tests that assert context values survive to the signer).
+- Cancellation tests now cover each layer, including mid-batch cancellation
+  in `AuthorizeAll`. The rule is documented in CONTRIBUTING.md.
+
+  **Migration:** callers that deliberately passed an already-cancelled context
+  and expected success (for example to probe the source-account path) must
+  pass `context.Background()` instead. Callers already treating a cancelled
+  context as an error need no change. No emitted signature or entry bytes
+  change, so golden vectors are unaffected.
+
+- Signing-path benchmarks (`BenchmarkAuthorizeEntry`, `BenchmarkAuthorizeAll`,
+  `BenchmarkAuthorizeInvocation`, `BenchmarkPreimage`, `BenchmarkPayload`).
+
 ## [0.1.0] — 2026-09-16
 
 First release. Unaudited.
