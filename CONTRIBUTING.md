@@ -30,7 +30,50 @@ go vet ./...
 go test ./...
 ```
 
-CI runs exactly these, plus the golden-vector drift check.
+CI runs exactly these, plus the golden-vector drift check and the signing-path
+budget check (see [Benchmarks](#benchmarks)).
+
+## Benchmarks
+
+The signing path has committed benchmarks in `bench_signing_test.go` covering
+`Preimage`, `Payload`, `AuthorizeEntry` on all three arms (legacy, V2,
+delegates, including a depth-8 delegate chain), and `AuthorizeAll` over a
+12-entry, 4-signer batch.
+
+```sh
+# Full suite with allocation stats
+go test -run '^$' -bench . -benchmem -count=1 .
+
+# One arm
+go test -run '^$' -bench 'BenchmarkAuthorizeEntry/delegates' -benchmem .
+```
+
+CI runs the same command and gates on **allocs/op and B/op** only, via:
+
+```sh
+go test -run '^$' -bench . -benchmem -count=1 . | tee /tmp/bench.out
+go run ./scripts/checkbench /tmp/bench.out testdata/bench/budgets.json
+```
+
+`ns/op` is reported for humans in PRs (with the machine it came from) but never
+fails the build: wall-clock on a shared runner is noise. Allocation counts are
+deterministic for a given Go version and are the regression signal.
+
+`testdata/bench/budgets.json` is the committed baseline. It carries ~40%
+headroom over the measured values so a Go minor bump does not flake CI. If the
+checker fails:
+
+- If the increase is a bug, fix the bug; do not raise the budget.
+- If the increase is intentional, raise the budget in the **same commit** as
+  the change and say in the commit body which function got more expensive and
+  why that is acceptable.
+- Never lower a budget without a fresh local measurement on the machine named
+  in the commit body.
+
+When you add a benchmark, add a budget in the same commit. The checker prints
+`WARN … no budget` for any benchmark it sees without one, and
+`FAIL … benchmark not found` if a budgeted name is missing from the output —
+so a renamed benchmark cannot silently drop out of the gate.
 
 ## Golden vectors
 
