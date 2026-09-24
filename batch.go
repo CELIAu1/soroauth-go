@@ -149,7 +149,8 @@ func AuthorizeAll(
 			return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): %w", i, address, err)
 		}
 		if len(matched) == 0 {
-			return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): %w", i, address, ErrMissingSigner)
+			return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): %w", i, address,
+				&MissingSignerError{Address: address})
 		}
 
 		signed := entry

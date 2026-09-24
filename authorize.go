@@ -266,7 +266,8 @@ func AuthorizeEntry(
 	}
 	if len(matches) == 0 {
 		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf(
-			"soroauth: authorize entry: %s: %w", target, ErrNoMatchingCredentialNode)
+			"soroauth: authorize entry: %s: %w", target,
+			&NoMatchingCredentialNodeError{Address: target})
 	}
 
 	// In a delegates entry every signature-bearing node commits to one shared

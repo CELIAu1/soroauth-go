@@ -66,8 +66,8 @@ func benchEntry(b *testing.B) xdr.SorobanAuthorizationEntry {
 	}
 }
 
-// BenchmarkAuthorizeEntry measures the full signing path: context check, deep
-// copy, preimage, payload hash, signer.Sign, and writing the signature.
+// BenchmarkAuthorizeEntry measures the full signing path: deep copy, preimage,
+// payload hash, signer.Sign, and writing the signature onto the entry.
 func BenchmarkAuthorizeEntry(b *testing.B) {
 	entry := benchEntry(b)
 	signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
@@ -76,40 +76,6 @@ func BenchmarkAuthorizeEntry(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := AuthorizeEntry(ctx, entry, signer, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkAuthorizeAll measures the batch signing path over one entry.
-func BenchmarkAuthorizeAll(b *testing.B) {
-	entry := benchEntry(b)
-	signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
-	ctx := context.Background()
-	entries := []xdr.SorobanAuthorizationEntry{entry}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := AuthorizeAll(ctx, entries, []Signer{signer}, testValidUntilLedger, network.TestNetworkPassphrase); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkAuthorizeInvocation measures building and signing from scratch.
-func BenchmarkAuthorizeInvocation(b *testing.B) {
-	signer := NewEd25519Signer(benchKeypair(b, "soroauth-bench-signer"))
-	ctx := context.Background()
-	params := AuthorizeInvocationParams{
-		Signer:            signer,
-		Invocation:        benchEntry(b).RootInvocation,
-		ValidUntilLedger:  testValidUntilLedger,
-		NetworkPassphrase: network.TestNetworkPassphrase,
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := AuthorizeInvocation(ctx, params); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -7,31 +7,34 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Changed
+### Added
 
-**Context cancellation is checked at every layer**
+**Typed address errors**
 
-- `AuthorizeEntry`, `AuthorizeAll` and `AuthorizeInvocation` now check
-  `ctx.Err()` before doing any work, so a cancelled context (or an expired
-  deadline) fails closed with `context.Canceled` / `context.DeadlineExceeded`
-  on **every** path — including the source-account pass-through, an empty
-  batch, and error paths that never reach a `Signer` — and without consuming
-  a nonce in `AuthorizeInvocation`. Previously only paths that called
-  `Signer.Sign` observed cancellation; a cancelled call against a
-  source-account entry or an empty batch returned success.
-- All three functions pass the caller's context unchanged to `Signer.Sign`
-  (proven by tests that assert context values survive to the signer).
-- Cancellation tests now cover each layer, including mid-batch cancellation
-  in `AuthorizeAll`. The rule is documented in CONTRIBUTING.md.
+- `NoMatchingCredentialNodeError`, `DuplicateDelegateError` and
+  `MissingSignerError`: error types that wrap the existing
+  `ErrNoMatchingCredentialNode`, `ErrDuplicateDelegate` and `ErrMissingSigner`
+  sentinels and expose the offending address as an `Address` field.
+  `errors.Is` keeps matching the sentinels unchanged, and `errors.As`
+  recovers the address without parsing the error string:
 
-  **Migration:** callers that deliberately passed an already-cancelled context
-  and expected success (for example to probe the source-account path) must
-  pass `context.Background()` instead. Callers already treating a cancelled
-  context as an error need no change. No emitted signature or entry bytes
+  ```go
+  var addrErr *soroauth.MissingSignerError
+  if errors.Is(err, soroauth.ErrMissingSigner) && errors.As(err, &addrErr) {
+      log.Printf("no signer for %s", addrErr.Address)
+  }
+  ```
+
+  **Migration:** none required. Error messages are byte-identical to v0.1.0,
+  and every existing `errors.Is(err, Err…)` check continues to work. Callers
+  that previously extracted an address by substring-matching the message may
+  switch to `errors.As`; that is optional. No emitted signature or entry bytes
   change, so golden vectors are unaffected.
 
-- Signing-path benchmarks (`BenchmarkAuthorizeEntry`, `BenchmarkAuthorizeAll`,
-  `BenchmarkAuthorizeInvocation`, `BenchmarkPreimage`, `BenchmarkPayload`).
+- Go doc examples for each of the three typed errors, showing the
+  `errors.Is` + `errors.As` recovery pattern.
+- Signing-path benchmarks (`BenchmarkAuthorizeEntry`, `BenchmarkPreimage`,
+  `BenchmarkPayload`) to guard against performance regressions.
 
 ## [0.1.0] — 2026-09-16
 
