@@ -101,3 +101,94 @@ var (
 	// rather than on-chain.
 	ErrTooManySignatures = errors.New("too many signatures for a classic account")
 )
+
+// NoMatchingCredentialNodeError is returned when no credential node in the
+// entry carries the address the signature was meant for, and exposes that
+// address as a field so callers can recover it with errors.As instead of
+// parsing the error string.
+//
+// It wraps ErrNoMatchingCredentialNode, so errors.Is keeps matching the
+// sentinel. The Error text is exactly the sentinel's text; the address is
+// formatted into the surrounding message by the call site (for example
+// "soroauth: authorize entry: <address>: …") and is available here as Address.
+//
+// This is the fail-closed half of soroauth's target-address rule under
+// CAP-71-01: a signature is only ever written onto a node whose address equals
+// the target, so when nothing matches the call fails rather than writing the
+// signature somewhere it does not belong.
+type NoMatchingCredentialNodeError struct {
+	// Address is the target address that matched no credential node.
+	Address string
+}
+
+// Error implements error. The text is identical to
+// ErrNoMatchingCredentialNode.Error so existing message assertions and log
+// parsers see no change; Address is carried separately for errors.As.
+func (e *NoMatchingCredentialNodeError) Error() string {
+	return ErrNoMatchingCredentialNode.Error()
+}
+
+// Unwrap returns ErrNoMatchingCredentialNode so errors.Is keeps working.
+func (e *NoMatchingCredentialNodeError) Unwrap() error {
+	return ErrNoMatchingCredentialNode
+}
+
+// DuplicateDelegateError is returned when one address appears twice within a
+// single delegates array, and exposes that address as a field so callers can
+// recover it with errors.As instead of parsing the error string.
+//
+// It wraps ErrDuplicateDelegate, so errors.Is keeps matching the sentinel.
+// The Error text is exactly the sentinel's text; the address is formatted into
+// the surrounding message by the call site and is available here as Address.
+//
+// CAP-71-01 requires each delegates array to be sorted by address in
+// increasing order, which leaves no room for a repeat at the same level. The
+// same address at two different nesting levels is allowed and does not
+// produce this error.
+type DuplicateDelegateError struct {
+	// Address is the delegate address that appears more than once at one level.
+	Address string
+}
+
+// Error implements error. The text is identical to
+// ErrDuplicateDelegate.Error so existing message assertions and log parsers
+// see no change; Address is carried separately for errors.As.
+func (e *DuplicateDelegateError) Error() string {
+	return ErrDuplicateDelegate.Error()
+}
+
+// Unwrap returns ErrDuplicateDelegate so errors.Is keeps working.
+func (e *DuplicateDelegateError) Unwrap() error {
+	return ErrDuplicateDelegate
+}
+
+// MissingSignerError is returned when an address-arm entry has no signer for
+// its address (or a classic multisig account has no keys), and exposes that
+// address as a field so callers can recover it with errors.As instead of
+// parsing the error string.
+//
+// It wraps ErrMissingSigner, so errors.Is keeps matching the sentinel. The
+// Error text is exactly the sentinel's text; the address is formatted into the
+// surrounding message by the call site and is available here as Address.
+//
+// AuthorizeAll never silently skips an entry: an unsigned address entry means
+// a transaction that is accepted, charged for, and then fails during
+// application. Refusing the whole batch is the cheaper failure.
+type MissingSignerError struct {
+	// Address is the entry address (or classic account address) that has no
+	// applicable signer. It is empty only where the call site had no address
+	// to name, such as a nil Signer.
+	Address string
+}
+
+// Error implements error. The text is identical to ErrMissingSigner.Error so
+// existing message assertions and log parsers see no change; Address is
+// carried separately for errors.As.
+func (e *MissingSignerError) Error() string {
+	return ErrMissingSigner.Error()
+}
+
+// Unwrap returns ErrMissingSigner so errors.Is keeps working.
+func (e *MissingSignerError) Unwrap() error {
+	return ErrMissingSigner
+}

@@ -5,6 +5,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**Typed address errors**
+
+- `NoMatchingCredentialNodeError`, `DuplicateDelegateError` and
+  `MissingSignerError`: error types that wrap the existing
+  `ErrNoMatchingCredentialNode`, `ErrDuplicateDelegate` and `ErrMissingSigner`
+  sentinels and expose the offending address as an `Address` field.
+  `errors.Is` keeps matching the sentinels unchanged, and `errors.As`
+  recovers the address without parsing the error string:
+
+  ```go
+  var addrErr *soroauth.MissingSignerError
+  if errors.Is(err, soroauth.ErrMissingSigner) && errors.As(err, &addrErr) {
+      log.Printf("no signer for %s", addrErr.Address)
+  }
+  ```
+
+  **Migration:** none required. Error messages are byte-identical to v0.1.0,
+  and every existing `errors.Is(err, Err…)` check continues to work. Callers
+  that previously extracted an address by substring-matching the message may
+  switch to `errors.As`; that is optional. No emitted signature or entry bytes
+  change, so golden vectors are unaffected.
+
+- Go doc examples for each of the three typed errors, showing the
+  `errors.Is` + `errors.As` recovery pattern.
+- Signing-path benchmarks (`BenchmarkAuthorizeEntry`, `BenchmarkPreimage`,
+  `BenchmarkPayload`) to guard against performance regressions.
+
 ## [0.1.0] — 2026-09-16
 
 First release. Unaudited.

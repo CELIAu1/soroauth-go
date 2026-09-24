@@ -209,7 +209,8 @@ func newAccountMultiSigner(account string, kps ...ed25519Keypair) (Signer, error
 		return nil, fmt.Errorf("soroauth: new account multi signer: %w", err)
 	}
 	if len(kps) == 0 {
-		return nil, fmt.Errorf("soroauth: new account multi signer: %s: %w", account, ErrMissingSigner)
+		return nil, fmt.Errorf("soroauth: new account multi signer: %s: %w", account,
+			&MissingSignerError{Address: account})
 	}
 	if len(kps) > maxAccountSignatures {
 		return nil, fmt.Errorf("soroauth: new account multi signer: %d keys, the host accepts at most %d: %w",
