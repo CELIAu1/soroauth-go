@@ -25,6 +25,11 @@ address, signed in the right places — and not a substitute for understanding
 the call.
 
 Nothing is signed and no key is involved.
+
+exit codes:
+  0  success
+  1  general error
+  2  usage error (missing --entry or malformed entry)
 `
 
 func runInspect(args []string, stdout, stderr io.Writer) error {
@@ -39,22 +44,22 @@ func runInspect(args []string, stdout, stderr io.Writer) error {
 	entryFlag := flags.String("entry", "", "the authorization entry, as base64 XDR")
 
 	if err := flags.Parse(args); err != nil {
-		return err
+		return newErrorf(ExitUsageError, "%w", err)
 	}
 
 	entry, err := decodeEntry(*entryFlag)
 	if err != nil {
-		return err
+		return newErrorf(ExitUsageError, "%w", err)
 	}
 
 	info, err := soroauth.Inspect(entry)
 	if err != nil {
-		return err
+		return newErrorf(ExitGeneralError, "%w", err)
 	}
 
 	encoded, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding the report: %w", err)
+		return newErrorf(ExitGeneralError, "encoding the report: %w", err)
 	}
 	fmt.Fprintln(stdout, string(encoded))
 	return nil

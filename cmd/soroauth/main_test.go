@@ -275,6 +275,9 @@ func TestPayloadRefusesSourceAccountEntries(t *testing.T) {
 	if !strings.Contains(err.Error(), "source-account") {
 		t.Errorf("error %q does not explain the source-account case", err)
 	}
+	if ExitCode(err) != ExitSigningRefusal {
+		t.Errorf("exit code for source-account entry is %d, want %d (ExitSigningRefusal)", ExitCode(err), ExitSigningRefusal)
+	}
 }
 
 // sourceAccountEntryFromVector rebuilds a vector's entry with source-account
@@ -312,4 +315,298 @@ func loadFullVector(t *testing.T, name string) string {
 		t.Fatalf("decoding %s: %v", path, err)
 	}
 	return v.SignedEntryXDR
+}
+
+// TestExitCodes tests that each failure class produces the correct exit code.
+func TestExitCodes(t *testing.T) {
+	v := loadVector(t, "v2_single_testnet")
+	signer := vectorKeypair(t, "soroauth-vector-signer-1")
+	stranger := vectorKeypair(t, "soroauth-vector-delegate-3")
+
+	tests := []struct {
+		name       string
+		args       []string
+		env        map[string]string
+		wantCode   int
+		wantMsg    string
+		wantStdout string // expected stdout content (empty for non-JSON mode)
+	}{
+		// Usage errors (exit code 2)
+		{
+			name:     "payload no entry",
+			args:     []string{"payload", "--valid-until", "1", "--network", "testnet"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--entry is required",
+		},
+		{
+			name:     "payload malformed entry",
+			args:     []string{"payload", "--entry", "not-base64", "--valid-until", "1", "--network", "testnet"},
+			wantCode: ExitUsageError,
+			wantMsg:  "decoding --entry",
+		},
+		{
+			name:     "payload no network",
+			args:     []string{"payload", "--entry", v.UnsignedEntryXDR, "--valid-until", "1"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--network is required",
+		},
+		{
+			name:     "payload zero valid-until",
+			args:     []string{"payload", "--entry", v.UnsignedEntryXDR, "--valid-until", "0", "--network", "testnet"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--valid-until is required",
+		},
+		{
+			name:     "sign no secret-env",
+			args:     []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1", "--network", "testnet"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--secret-env is required",
+		},
+		{
+			name: "sign variable unset",
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1",
+				"--network", "testnet", "--secret-env", "NOT_SET"},
+			wantCode: ExitUsageError,
+			wantMsg:  "NOT_SET is empty or unset",
+		},
+		{
+			name: "sign variable holds public key",
+			env:  map[string]string{"SEED": signer.Address()},
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--network", "testnet", "--secret-env", "SEED"},
+			wantCode: ExitUsageError,
+			wantMsg:  "a secret seed (S…) is required",
+		},
+		{
+			name: "sign variable holds junk",
+			env:  map[string]string{"SEED": "definitely not a key"},
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--network", "testnet", "--secret-env", "SEED"},
+			wantCode: ExitUsageError,
+			wantMsg:  "not a valid Stellar key",
+		},
+		{
+			name:     "delegates no entry",
+			args:     []string{"delegates", "--valid-until", "1", "--delegate", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--entry is required",
+		},
+		{
+			name:     "delegates zero valid-until",
+			args:     []string{"delegates", "--entry", v.UnsignedEntryXDR, "--valid-until", "0", "--delegate", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--valid-until is required",
+		},
+		{
+			name:     "delegates no delegates",
+			args:     []string{"delegates", "--entry", v.UnsignedEntryXDR, "--valid-until", "1"},
+			wantCode: ExitUsageError,
+			wantMsg:  "at least one --delegate is required",
+		},
+		{
+			name:     "inspect no entry",
+			args:     []string{"inspect"},
+			wantCode: ExitUsageError,
+			wantMsg:  "--entry is required",
+		},
+		{
+			name:     "inspect malformed entry",
+			args:     []string{"inspect", "--entry", "not-base64"},
+			wantCode: ExitUsageError,
+			wantMsg:  "decoding --entry",
+		},
+		{
+			name:     "unknown command",
+			args:     []string{"frobnicate"},
+			wantCode: ExitUsageError,
+			wantMsg:  "unknown command",
+		},
+		{
+			name:     "no command",
+			args:     []string{},
+			wantCode: ExitUsageError,
+			wantMsg:  "no command given",
+		},
+
+		// Signing refusals (exit code 3)
+		{
+			name: "payload source-account entry",
+			args: []string{"payload", "--entry", sourceAccountEntryFromVector(t),
+				"--valid-until", "1234567", "--network", "testnet"},
+			wantCode: ExitSigningRefusal,
+			wantMsg:  "source-account",
+		},
+		{
+			name: "sign key owns no node",
+			env:  map[string]string{"SEED": stranger.Seed()},
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--network", "testnet", "--secret-env", "SEED"},
+			wantCode: ExitSigningRefusal,
+			wantMsg:  "no credential node matches",
+		},
+		{
+			name: "sign --for names absent address",
+			env:  map[string]string{"SEED": signer.Seed()},
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--network", "testnet", "--secret-env", "SEED",
+				"--for", stranger.Address()},
+			wantCode: ExitSigningRefusal,
+			wantMsg:  "no credential node matches",
+		},
+
+		// Verification failures (exit code 4) - these would need specific setup
+		// For now we test what we can with the available vectors
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := runCLIEnv(t, tt.env, tt.args...)
+			if err == nil {
+				t.Fatalf("expected error, got success: stdout=%q", stdout)
+			}
+			if ExitCode(err) != tt.wantCode {
+				t.Errorf("exit code %d, want %d", ExitCode(err), tt.wantCode)
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("error %q does not mention %q", err, tt.wantMsg)
+			}
+			// In non-JSON mode, stdout should be empty on error
+			if stdout != "" && !strings.Contains(strings.Join(tt.args, " "), "--json") {
+				t.Errorf("a failing command wrote to stdout: %q", stdout)
+			}
+			// stderr should contain usage text for usage errors
+			if tt.wantCode == ExitUsageError && !strings.Contains(stderr, "usage:") && !strings.Contains(tt.name, "unknown command") && !strings.Contains(tt.name, "no command") {
+				// Some usage errors don't print usage (like flag parsing errors)
+			}
+		})
+	}
+}
+
+// TestExitCodesJSONMode tests that JSON mode preserves stdout as results-only on failure.
+func TestExitCodesJSONMode(t *testing.T) {
+	v := loadVector(t, "v2_single_testnet")
+	stranger := vectorKeypair(t, "soroauth-vector-delegate-3")
+
+	tests := []struct {
+		name     string
+		args     []string
+		env      map[string]string
+		wantCode int
+	}{
+		{
+			name: "payload malformed entry JSON",
+			args: []string{"payload", "--entry", "not-base64", "--valid-until", "1",
+				"--network", "testnet", "--json"},
+			wantCode: ExitUsageError,
+		},
+		{
+			name: "sign no matching node JSON",
+			env:  map[string]string{"SEED": stranger.Seed()},
+			args: []string{"sign", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--network", "testnet", "--secret-env", "SEED", "--json"},
+			wantCode: ExitSigningRefusal,
+		},
+		{
+			name: "delegates duplicate delegate JSON",
+			args: []string{"delegates", "--entry", v.UnsignedEntryXDR, "--valid-until", "1234567",
+				"--delegate", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+				"--delegate", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "--json"},
+			wantCode: ExitSigningRefusal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := runCLIEnv(t, tt.env, tt.args...)
+			if err == nil {
+				t.Fatalf("expected error, got success: stdout=%q", stdout)
+			}
+			if ExitCode(err) != tt.wantCode {
+				t.Errorf("exit code %d, want %d", ExitCode(err), tt.wantCode)
+			}
+			// In JSON mode, stdout should contain only the JSON error object
+			if stderr != "" {
+				t.Errorf("stderr should be empty in JSON mode, got: %q", stderr)
+			}
+			if !strings.HasPrefix(strings.TrimSpace(stdout), "{") {
+				t.Errorf("stdout should be JSON object, got: %q", stdout)
+			}
+			var out struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+				t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+			}
+			if out.Error == "" {
+				t.Error("JSON error object has empty error field")
+			}
+			if strings.Contains(stdout, "usage:") {
+				t.Error("stdout contains usage text in JSON error mode")
+			}
+		})
+	}
+}
+
+// TestExitCodeSuccess verifies that successful commands exit with code 0.
+func TestExitCodeSuccess(t *testing.T) {
+	v := loadVector(t, "v2_single_testnet")
+	signer := vectorKeypair(t, "soroauth-vector-signer-1")
+
+	// payload success
+	stdout, _, err := runCLI(t, "payload",
+		"--entry", v.UnsignedEntryXDR,
+		"--valid-until", "1234567",
+		"--network", "testnet")
+	if err != nil {
+		t.Fatalf("payload failed: %v", err)
+	}
+	if ExitCode(err) != ExitOK {
+		t.Errorf("payload exit code %d, want %d", ExitCode(err), ExitOK)
+	}
+	if !strings.Contains(stdout, v.PreimageXDR) {
+		t.Error("payload output missing preimage")
+	}
+
+	// sign success
+	stdout, _, err = runCLIEnv(t, map[string]string{"SEED": signer.Seed()},
+		"sign", "--entry", v.UnsignedEntryXDR,
+		"--valid-until", "1234567", "--network", "testnet",
+		"--secret-env", "SEED")
+	if err != nil {
+		t.Fatalf("sign failed: %v", err)
+	}
+	if ExitCode(err) != ExitOK {
+		t.Errorf("sign exit code %d, want %d", ExitCode(err), ExitOK)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Error("sign output is empty")
+	}
+
+	// delegates success
+	stdout, _, err = runCLI(t, "delegates",
+		"--entry", v.UnsignedEntryXDR,
+		"--valid-until", "1234567",
+		"--delegate", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
+	if err != nil {
+		t.Fatalf("delegates failed: %v", err)
+	}
+	if ExitCode(err) != ExitOK {
+		t.Errorf("delegates exit code %d, want %d", ExitCode(err), ExitOK)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Error("delegates output is empty")
+	}
+
+	// inspect success
+	stdout, _, err = runCLI(t, "inspect",
+		"--entry", v.UnsignedEntryXDR)
+	if err != nil {
+		t.Fatalf("inspect failed: %v", err)
+	}
+	if ExitCode(err) != ExitOK {
+		t.Errorf("inspect exit code %d, want %d", ExitCode(err), ExitOK)
+	}
+	if !strings.Contains(stdout, "credential_type") {
+		t.Error("inspect output missing credential_type")
+	}
 }

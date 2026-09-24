@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -46,7 +47,7 @@ func runPayload(args []string, stdout, stderr io.Writer) error {
 	jsonFlag := flags.Bool("json", false, "output as JSON")
 
 	if err := flags.Parse(args); err != nil {
-		return err
+		return newErrorf(ExitUsageError, "%w", err)
 	}
 
 	entry, err := decodeEntry(*entryFlag)
@@ -58,20 +59,27 @@ func runPayload(args []string, stdout, stderr io.Writer) error {
 		return writeJSONError(stdout, *jsonFlag, err)
 	}
 	if *validUntil == 0 {
-		return writeJSONError(stdout, *jsonFlag, fmt.Errorf("--valid-until is required and must be greater than zero"))
+		return writeJSONError(stdout, *jsonFlag, newErrorf(ExitUsageError, "--valid-until is required and must be greater than zero"))
 	}
 
 	preimage, err := soroauth.Preimage(entry, uint32(*validUntil), passphrase)
 	if err != nil {
-		return writeJSONError(stdout, *jsonFlag, err)
+		// Classify the error for exit code
+		var exitCode int
+		if errors.Is(err, soroauth.ErrSourceAccountCredentials) || errors.Is(err, soroauth.ErrUnsupportedCredentials) {
+			exitCode = ExitSigningRefusal
+		} else {
+			exitCode = ExitVerificationFailed
+		}
+		return writeJSONError(stdout, *jsonFlag, newErrorf(exitCode, "%w", err))
 	}
 	payload, err := soroauth.Payload(preimage)
 	if err != nil {
-		return writeJSONError(stdout, *jsonFlag, err)
+		return writeJSONError(stdout, *jsonFlag, newErrorf(ExitGeneralError, "%w", err))
 	}
 	encoded, err := xdr.MarshalBase64(preimage)
 	if err != nil {
-		return writeJSONError(stdout, *jsonFlag, fmt.Errorf("encoding the preimage: %w", err))
+		return writeJSONError(stdout, *jsonFlag, newErrorf(ExitGeneralError, "encoding the preimage: %w", err))
 	}
 
 	if *jsonFlag {
