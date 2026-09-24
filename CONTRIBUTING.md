@@ -40,8 +40,10 @@ still pass on code that races.
 
 The signing path has committed benchmarks in `bench_signing_test.go` covering
 `Preimage`, `Payload`, `AuthorizeEntry` on all three arms (legacy, V2,
-delegates, including a depth-8 delegate chain), and `AuthorizeAll` over a
-12-entry, 4-signer batch.
+delegates, including a depth-8 delegate chain), `AuthorizeAll` over a
+12-entry, 4-signer batch, and `BenchmarkXDRCopy` — the deep copy in
+`internal/xdrcopy` that every entry-returning function performs, in its two
+on-path shapes (an authorization entry and a `HashIdPreimage`).
 
 ```sh
 # Full suite with allocation stats
@@ -62,9 +64,9 @@ go run ./scripts/checkbench /tmp/bench.out testdata/bench/budgets.json
 fails the build: wall-clock on a shared runner is noise. Allocation counts are
 deterministic for a given Go version and are the regression signal.
 
-`testdata/bench/budgets.json` is the committed baseline. It carries ~40%
-headroom over the measured values so a Go minor bump does not flake CI. If the
-checker fails:
+`testdata/bench/budgets.json` is the committed baseline. Signing-path budgets
+carry ~40% headroom over the measured values so a Go minor bump does not flake
+CI. If the checker fails:
 
 - If the increase is a bug, fix the bug; do not raise the budget.
 - If the increase is intentional, raise the budget in the **same commit** as
@@ -77,6 +79,37 @@ When you add a benchmark, add a budget in the same commit. The checker prints
 `WARN … no budget` for any benchmark it sees without one, and
 `FAIL … benchmark not found` if a budgeted name is missing from the output —
 so a renamed benchmark cannot silently drop out of the gate.
+
+### Reproducing a budget failure locally
+
+A CI failure from the `bench` job is a `FAIL` line naming the benchmark and
+the budget it exceeded:
+
+```
+FAIL BenchmarkXDRCopy/entry   allocs/op 26 > budget 23; B/op 1632 > budget 1250
+```
+
+The two commands above, run from the repository root, reproduce it locally —
+`checkbench` exits 1 exactly as CI does. Once you can see *which* benchmark
+regressed, find out *where* the allocations come from:
+
+```sh
+go test -run '^$' -bench BenchmarkXDRCopy -benchmem -count=1 -memprofile /tmp/mem.out .
+go tool pprof -alloc_objects -top /tmp/mem.out   # rank by number of allocations
+go tool pprof -alloc_space  -top /tmp/mem.out    # rank by bytes
+```
+
+The signing-path entries (`AuthorizeEntry`, `AuthorizeAll`) also include
+ed25519 signing and SHA-256; `BenchmarkXDRCopy` isolates the deep copy, so a
+regression that moves both almost always starts in `internal/xdrcopy`.
+
+The `BenchmarkXDRCopy` budgets are deliberately tighter than the ~40%
+policy: they sit **below** what a copy cost before the round-trip buffers
+were pooled (issue #108), so reverting that pooling fails this gate instead
+of only a local run. If they fail after a change that never touched
+`internal/xdrcopy`, profile with the commands above before moving the
+number, and if the new cost is justified, raise it in the same commit with
+the measurement in the body.
 
 ## Verifying README snippets compile
 
