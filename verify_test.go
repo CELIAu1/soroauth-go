@@ -788,15 +788,15 @@ func corruptSignatureShapes(t testing.TB, signed xdr.SorobanAuthorizationEntry) 
 // TestVerificationReportStringGolden verifies the String() output matches the golden format.
 func TestVerificationReportStringGolden(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		report VerificationReport
-		want string
+		want   string
 	}{
 		{
 			name: "source account",
 			report: VerificationReport{
 				CredentialType: CredentialTypeSourceAccount,
-				Note: "source-account credentials carry no signature payload of their own; the transaction envelope's signature covers them, so there is nothing here to verify",
+				Note:           "source-account credentials carry no signature payload of their own; the transaction envelope's signature covers them, so there is nothing here to verify",
 			},
 			want: "source_account (no payload to verify): source-account credentials carry no signature payload of their own; the transaction envelope's signature covers them, so there is nothing here to verify\n",
 		},

@@ -646,10 +646,10 @@ func TestEntryInfoStringGolden(t *testing.T) {
 		{
 			name: "address v2 signed",
 			info: EntryInfo{
-				CredentialType: CredentialTypeAddressV2,
-				Address:        "GC33NWBJFXQSQMD3AMHTFEFT36IH5ZBG24L5RZMQGKO2SPBTVB74VZI5",
-				TopLevelSigned: true,
-				Nonce:          42,
+				CredentialType:   CredentialTypeAddressV2,
+				Address:          "GC33NWBJFXQSQMD3AMHTFEFT36IH5ZBG24L5RZMQGKO2SPBTVB74VZI5",
+				TopLevelSigned:   true,
+				Nonce:            42,
 				ValidUntilLedger: 1234567,
 				AddressBound:     true,
 			},
@@ -698,15 +698,15 @@ func TestEntryInfoStringDoesNotPanic(t *testing.T) {
 
 	// Very large numbers
 	large := EntryInfo{
-		CredentialType:     CredentialTypeAddressV2,
-		Address:            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-		TopLevelSigned:     true,
-		Nonce:              math.MaxInt64,
-		ValidUntilLedger:   math.MaxUint32,
-		AddressBound:       true,
-		RootContract:       "C" + strings.Repeat("A", 50),
-		RootFunction:       "transfer",
-		SubInvocations:     1000000,
+		CredentialType:   CredentialTypeAddressV2,
+		Address:          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+		TopLevelSigned:   true,
+		Nonce:            math.MaxInt64,
+		ValidUntilLedger: math.MaxUint32,
+		AddressBound:     true,
+		RootContract:     "C" + strings.Repeat("A", 50),
+		RootFunction:     "transfer",
+		SubInvocations:   1000000,
 	}
 	_ = large.String() // Should not panic
 
