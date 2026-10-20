@@ -1,6 +1,6 @@
 module github.com/soroauth/soroauth-go
 
-go 1.26.0
+go 1.26.3
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -15,8 +15,15 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	filippo.io/nistec v0.0.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bytemare/ecc v0.10.0 // indirect
+	github.com/bytemare/frost v0.0.0-20260616005703-316cadd937fd // indirect
+	github.com/bytemare/hash v0.6.3 // indirect
+	github.com/bytemare/secp256k1 v0.5.0 // indirect
+	github.com/bytemare/secret-sharing v0.8.1-0.20260608010144-f8126702fd4d // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
@@ -29,6 +36,7 @@ require (
 	github.com/creachadair/jrpc2 v1.2.0 // indirect
 	github.com/creachadair/mds v0.13.4 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
+	github.com/gtank/ristretto255 v0.2.0 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -43,6 +51,7 @@ require (
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
