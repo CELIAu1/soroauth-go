@@ -943,7 +943,36 @@ func TestVerifyAllWithOptionsAndErrors(t *testing.T) {
 	assert.Equal(t, 1, results[1].Index)
 }
 
-<<<<<<< HEAD
+// TestVerifyAllHonoursContextCancellation proves VerifyAll checks ctx.Err()
+// before doing work and fails closed with context.Canceled.
+func TestVerifyAllHonoursContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entries := []xdr.SorobanAuthorizationEntry{
+		entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1),
+	}
+	_, err := VerifyAll(ctx, entries, network.TestNetworkPassphrase)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not match context.Canceled", err)
+	}
+}
+
+// TestVerifyAllHonoursContextDeadline proves VerifyAll also fails closed on
+// a deadline-exceeded context.
+func TestVerifyAllHonoursContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	entries := []xdr.SorobanAuthorizationEntry{
+		entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1),
+	}
+	_, err := VerifyAll(ctx, entries, network.TestNetworkPassphrase)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error %v does not match context.DeadlineExceeded", err)
+	}
+}
+
 // TestAuthorizeAllCollectsValidationErrors proves that validation failures
 // (missing signers, unsupported credentials, etc.) are collected and joined
 // with errors.Join, while the first signing failure still stops immediately.
@@ -1015,34 +1044,4 @@ func TestAuthorizeAllSigningFailureStopsImmediately(t *testing.T) {
 
 	// errors.Is should match the signer's error.
 	require.True(t, errors.Is(err, signerError), "errors.Is should match the signer's error")
-=======
-// TestVerifyAllHonoursContextCancellation proves VerifyAll checks ctx.Err()
-// before doing work and fails closed with context.Canceled.
-func TestVerifyAllHonoursContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	entries := []xdr.SorobanAuthorizationEntry{
-		entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1),
-	}
-	_, err := VerifyAll(ctx, entries, network.TestNetworkPassphrase)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("error %v does not match context.Canceled", err)
-	}
-}
-
-// TestVerifyAllHonoursContextDeadline proves VerifyAll also fails closed on
-// a deadline-exceeded context.
-func TestVerifyAllHonoursContextDeadline(t *testing.T) {
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancel()
-
-	entries := []xdr.SorobanAuthorizationEntry{
-		entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1),
-	}
-	_, err := VerifyAll(ctx, entries, network.TestNetworkPassphrase)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("error %v does not match context.DeadlineExceeded", err)
-	}
->>>>>>> origin/main
 }
