@@ -25,9 +25,18 @@ test_snapshots/
 __pycache__/
 *.pyc
 
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+
 # Python virtualenvs for the parity harness
 .venv/
 .venv-parity/
+
+# Python CFFI build artifacts
+bindings/python/soroauth/_ffi
+bindings/python/soroauth/lib/
 
 # A local e2e run writes its results here; testnet owns the committed
 # e2e/RESULTS.md. See e2e/README.md.
