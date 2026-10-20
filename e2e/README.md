@@ -276,3 +276,29 @@ Whether a result is labelled "accepted" or "rejected as expected" comes from the
 scenario's own `ExpectRejection` field, not from a list of IDs in the writer, so
 a new rejection scenario cannot be labelled "accepted" by forgetting to add it
 somewhere.
+
+## Scenario independence
+
+The e2e scenarios are designed to be **independent and reorderable**. Each
+scenario:
+
+1. Creates its own accounts at runtime using `h.newAccount(t, label)`.
+2. Funds them from the shared funder (friendbot or `SOROAUTH_FUNDER_SEED`).
+3. Submits its own transaction(s) and asserts the outcome.
+4. Does not reuse accounts, nonces, or ledger state from another scenario.
+
+This means:
+
+- **Running a single scenario by name works**:
+  `go test -tags e2e -run TestScenarioA ./e2e/...`
+- **Running the suite with `-shuffle=on` works**: the seed is reported on
+  failure so a flaky ordering bug is reproducible.
+- **No scenario depends on another's funding, nonces, or contract state**.
+
+If a scenario passes only because an earlier one funded an account or set up a
+contract, that is a bug in the scenario, not a feature. The harness guarantees
+isolation by generating fresh accounts for every scenario.
+
+Any discovered dependency must be fixed, or if it is genuinely required (e.g. a
+scenario that explicitly tests an upgrade path that another scenario deploys),
+it must be documented in the scenario's `Notes` field with the reason.

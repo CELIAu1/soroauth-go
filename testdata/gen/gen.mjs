@@ -31,6 +31,7 @@ import {
   Address,
   Keypair,
   Networks,
+  StrKey,
   authorizeEntry,
   buildAuthorizationEntryPreimage,
   buildWithDelegatesEntry,
@@ -103,6 +104,19 @@ const scAddress = (label) => new Address(keypairFor(label).publicKey()).toScAddr
 
 const contractAddress = (label) =>
   new Address(Address.contract(sha256(label)).toString()).toScAddress();
+
+// A muxed (M…) address as an ScVal, for testing that invocation arguments
+// can carry muxed addresses even though ParseAddress rejects them for credentials.
+const muxedAddressScVal = () => {
+  const kp = keypairFor("soroauth-vector-muxed-arg");
+  const raw = Buffer.from(StrKey.decodeEd25519PublicKey(kp.publicKey()));
+  const muxedEd25519 = new xdr.MuxedEd25519Account({
+    id: xdr.Uint64(1234n),
+    ed25519: raw,
+  });
+  const scAddress = xdr.ScAddress.scAddressTypeMuxedAccount(muxedEd25519);
+  return xdr.ScVal.scvAddress(scAddress);
+};
 
 // An invocation carrying a deliberately wide spread of ScVal types, so the
 // vectors exercise the encoder rather than just the common i128 transfer.
@@ -209,6 +223,25 @@ const invocationWithEmptyArgs = () =>
         contractAddress: contractAddress("soroauth-vector-contract-empty-args"),
         functionName: "noop",
         args: [],
+      }),
+    ),
+    subInvocations: [],
+  });
+
+// An invocation with a muxed (M…) address as one of its arguments.
+// This tests that muxed addresses are legal in arguments even though
+// ParseAddress rejects them for credentials.
+const invocationWithMuxedAddressArg = () =>
+  new xdr.SorobanAuthorizedInvocation({
+    function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+      new xdr.InvokeContractArgs({
+        contractAddress: contractAddress("soroauth-vector-contract-muxed-arg"),
+        functionName: "transfer_with_muxed",
+        args: [
+          xdr.ScVal.scvU32(1),
+          muxedAddressScVal(),
+          xdr.ScVal.scvSymbol("memo"),
+        ],
       }),
     ),
     subInvocations: [],
@@ -627,6 +660,22 @@ const CASES = [
         forAddress: keypairFor(delegateChainLabel(MAX_VECTOR_DELEGATE_DEPTH)).publicKey(),
       },
     ],
+  },
+  // #391: V2 arm with a muxed (M…) address in an invocation argument.
+  // ParseAddress rejects muxed addresses for credentials, but they are legal
+  // inside arguments because an argument is a different position with a different
+  // rule — the argument is data being approved, not an identity authorizing.
+  {
+    name: "v2_muxed_address_in_argument",
+    networkPassphrase: Networks.TESTNET,
+    entry: () =>
+      unsignedEntry({
+        signerLabel: SIGNER_1,
+        nonce: NONCE_ORDINARY,
+        invocation: invocationWithMuxedAddressArg(),
+        authV2: true,
+      }),
+    steps: [{ signerLabel: SIGNER_1, forAddress: null }],
   },
 ];
 

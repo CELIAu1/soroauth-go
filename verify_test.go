@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -554,6 +555,32 @@ func TestVerifyEntryDoesNotMutateInput(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Errorf("VerifyEntry mutated its input\n before %x\n  after %x", before, after)
+	}
+}
+
+// TestVerifyEntryContextHonoursContextCancellation proves VerifyEntryContext
+// checks ctx.Err() before doing work and fails closed with context.Canceled.
+func TestVerifyEntryContextHonoursContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1)
+	_, err := VerifyEntryContext(ctx, entry, network.TestNetworkPassphrase)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not match context.Canceled", err)
+	}
+}
+
+// TestVerifyEntryContextHonoursContextDeadline proves VerifyEntryContext also
+// fails closed on a deadline-exceeded context.
+func TestVerifyEntryContextHonoursContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1)
+	_, err := VerifyEntryContext(ctx, entry, network.TestNetworkPassphrase)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error %v does not match context.DeadlineExceeded", err)
 	}
 }
 

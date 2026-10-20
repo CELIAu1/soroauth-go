@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -126,5 +127,29 @@ func TestPossessionPayloadIsNotAnAuthorization(t *testing.T) {
 	}
 	if again == payload {
 		t.Fatal("two possession checks signed the same payload; the nonce is not random")
+	}
+}
+
+// TestCheckPossessionHonoursContextCancellation proves CheckPossession checks
+// ctx.Err() before doing work and fails closed with context.Canceled.
+func TestCheckPossessionHonoursContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := CheckPossession(ctx, NewEd25519Signer(testKeypair(t, "soroauth-possession-a")))
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not match context.Canceled", err)
+	}
+}
+
+// TestCheckPossessionHonoursContextDeadline proves CheckPossession also
+// fails closed on a deadline-exceeded context.
+func TestCheckPossessionHonoursContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err := CheckPossession(ctx, NewEd25519Signer(testKeypair(t, "soroauth-possession-a")))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error %v does not match context.DeadlineExceeded", err)
 	}
 }

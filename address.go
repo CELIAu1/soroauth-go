@@ -17,13 +17,19 @@ const scAddressPayloadLen = 32
 // ParseAddress converts a G… account strkey or a C… contract strkey into the
 // xdr.ScAddress that names it.
 //
-// Only those two forms are accepted. An M… muxed address is rejected rather
-// than unwrapped to the account it wraps: a Soroban address credential names
-// the identity whose require_auth() is being satisfied (CAP-46-11), and
-// unwrapping would mean signing on behalf of an identity the caller did not
-// write down. Every other strkey form (seeds, signed payloads, liquidity pools,
-// claimable balances) names something that cannot appear in an address
-// credential at all.
+// Only those two forms are accepted for credentials. An M… muxed address is
+// rejected rather than unwrapped to the account it wraps: a Soroban address
+// credential names the identity whose require_auth() is being satisfied
+// (CAP-46-11), and unwrapping would mean signing on behalf of an identity the
+// caller did not write down. Every other strkey form (seeds, signed payloads,
+// liquidity pools, claimable balances) names something that cannot appear in an
+// address credential at all.
+//
+// This rejection applies only to the *credentials* position — the "who
+// authorizes" half of an entry. A muxed address is legal inside *invocation
+// arguments* (the "what is being authorized" half), because an argument is data
+// being approved, not an identity authorizing. The XDR ScVal/ScAddress union
+// represents muxed addresses in arguments without restriction.
 //
 // Only the canonical SEP-23 base32 spelling of an address is accepted: upper
 // case A-Z and 2-7, no padding, no surrounding whitespace, no extra characters,

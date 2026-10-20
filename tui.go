@@ -122,6 +122,9 @@ func NewTUIStyles() *TUIStyles {
 // If stdin is not a TTY, it degrades to non-interactive output (equivalent to
 // running inspect and sign commands).
 func TUI(ctx context.Context, entryB64 string, validUntilLedger uint32, networkPassphrase string, secretEnvVar string, forAddress string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("soroauth: tui: %w", err)
+	}
 	// Decode entry through the library's bounded decoder: this is a
 	// caller-supplied blob, and the SDK's default limits are not a bound
 	// chosen for one. TestExportedFunctionsDecodeThroughTheBound pins this.
