@@ -162,7 +162,8 @@ var commandSpecs = []commandSpec{
 			{Name: "config", Description: "path to CLI configuration file", TakesValue: true},
 			{Name: "entry", Description: "the authorization entry or transaction envelope, as base64 XDR", TakesValue: true},
 			{Name: "entries", Description: "a file of entries to inspect, one base64 entry per line, or - for stdin", TakesValue: true},
-			{Name: "json", Description: "accepted for consistency; inspect's output is always JSON", TakesValue: false},
+			{Name: "json", Description: "output as JSON (default)", TakesValue: false},
+			{Name: "text", Description: "output as human-readable text using EntryInfo.String()", TakesValue: false},
 		},
 	},
 	{

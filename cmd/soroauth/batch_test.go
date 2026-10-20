@@ -281,10 +281,17 @@ func TestVerifyBatchReportsPerEntryVerdicts(t *testing.T) {
 	if !strings.Contains(stdout, "entry 1:") || !strings.Contains(stdout, "entry 2:") {
 		t.Errorf("stdout does not label both inputs:\n%s", stdout)
 	}
-	if got := strings.Count(stdout, "result: verified"); got != 1 {
-		t.Errorf("the report carries %d verified verdicts, want 1:\n%s", got, stdout)
+	// Count "VERIFIED:" at start of line for verified entries, not "NOT VERIFIED:".
+	verifiedCount := 0
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "VERIFIED:") {
+			verifiedCount++
+		}
 	}
-	if !strings.Contains(stdout, "result: NOT verified") {
+	if verifiedCount != 1 {
+		t.Errorf("the report carries %d verified verdicts, want 1:\n%s", verifiedCount, stdout)
+	}
+	if !strings.Contains(stdout, "NOT VERIFIED") {
 		t.Errorf("the unsigned entry's verdict is missing:\n%s", stdout)
 	}
 	if !strings.Contains(err.Error(), "1 of 2 entries failed") {

@@ -29,6 +29,12 @@ type Finding struct {
 	Rationale   string          `json:"rationale"`
 }
 
+// String renders the finding for a terminal.
+func (f Finding) String() string {
+	return fmt.Sprintf("[%s] %s: %s\n  %s\n  rationale: %s",
+		f.Severity, f.Code, f.Title, f.Description, f.Rationale)
+}
+
 // RiskConfig controls the heuristics used by Analyze. All zero values are
 // conservative defaults suitable for production use.
 type RiskConfig struct {

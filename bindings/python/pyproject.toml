@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "cffi>=1.15.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soroauth"
+version = "0.1.0"
+description = "Python bindings for the soroauth Soroban authorization signing library"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "soroauth contributors", email = "soroauth@github.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "cffi>=1.15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/soroauth/soroauth-go"
+Repository = "https://github.com/soroauth/soroauth-go"
+Issues = "https://github.com/soroauth/soroauth-go/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["soroauth*"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.cffi]
+modules = ["soroauth._ffi = sorauth.ffi:ffibuilder"]

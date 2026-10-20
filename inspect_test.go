@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -623,4 +625,92 @@ func FuzzInspect(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestEntryInfoStringGolden verifies the String() output matches the golden format.
+// This test ensures that formatting changes are visible as diffs rather than surprises.
+func TestEntryInfoStringGolden(t *testing.T) {
+	tests := []struct {
+		name string
+		info EntryInfo
+		want string
+	}{
+		{
+			name: "source account",
+			info: EntryInfo{
+				CredentialType: CredentialTypeSourceAccount,
+				TopLevelSigned: false,
+			},
+			want: "(no address) (unsigned) [source_account]\n",
+		},
+		{
+			name: "address v2 signed",
+			info: EntryInfo{
+				CredentialType: CredentialTypeAddressV2,
+				Address:        "GC33NWBJFXQSQMD3AMHTFEFT36IH5ZBG24L5RZMQGKO2SPBTVB74VZI5",
+				TopLevelSigned: true,
+				Nonce:          42,
+				ValidUntilLedger: 1234567,
+				AddressBound:     true,
+			},
+			want: "GC33NWBJFXQSQMD3AMHTFEFT36IH5ZBG24L5RZMQGKO2SPBTVB74VZI5 (signed) [address_v2]\n  nonce: 42\n  valid until ledger: 1234567\n  address-bound: yes\n",
+		},
+		{
+			name: "address with delegates unsigned",
+			info: EntryInfo{
+				CredentialType: CredentialTypeAddressWithDelegates,
+				Address:        "GTOP",
+				TopLevelSigned: false,
+				AddressBound:   true,
+				Delegates: []NodeInfo{
+					{Address: "GA", Signed: true, Shape: &SignatureShape{Type: SignatureShapeMap, Description: "map structure signature"}},
+					{Address: "GB", Signed: false},
+				},
+			},
+			want: "GTOP (unsigned) [address_with_delegates]\n  address-bound: yes\n\ndelegate tree:\n├── GA (signed)\n              shape: map structure signature\n└── GB (unsigned)\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.info.String()
+			if got != tt.want {
+				t.Errorf("String() output mismatch:\n got:\n%s want:\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEntryInfoStringDoesNotPanic verifies String() never panics on pathological values.
+func TestEntryInfoStringDoesNotPanic(t *testing.T) {
+	// Very deep delegate tree (within MaxDecodeDepth)
+	deep := EntryInfo{
+		CredentialType: CredentialTypeAddressWithDelegates,
+		Address:        "GTOP",
+		TopLevelSigned: true,
+	}
+	cursor := &deep.Delegates
+	for i := 0; i < 50; i++ {
+		*cursor = []NodeInfo{{Address: fmt.Sprintf("G%d", i), Signed: i%2 == 0}}
+		cursor = &(*cursor)[0].Nested
+	}
+	_ = deep.String() // Should not panic
+
+	// Very large numbers
+	large := EntryInfo{
+		CredentialType:     CredentialTypeAddressV2,
+		Address:            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+		TopLevelSigned:     true,
+		Nonce:              math.MaxInt64,
+		ValidUntilLedger:   math.MaxUint32,
+		AddressBound:       true,
+		RootContract:       "C" + strings.Repeat("A", 50),
+		RootFunction:       "transfer",
+		SubInvocations:     1000000,
+	}
+	_ = large.String() // Should not panic
+
+	// Empty strings
+	empty := EntryInfo{}
+	_ = empty.String() // Should not panic
 }

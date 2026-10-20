@@ -3,6 +3,7 @@ package soroauth
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -574,4 +575,37 @@ func TestRiskConfigJSONMarshal(t *testing.T) {
 		parsed.CurrentLedger != cfg.CurrentLedger {
 		t.Errorf("JSON round-trip failed: got %+v", parsed)
 	}
+}
+
+// TestFindingStringGolden verifies the String() output matches the golden format.
+func TestFindingStringGolden(t *testing.T) {
+	f := Finding{
+		Code:        "EXPIRATION_FAR_FUTURE",
+		Severity:    SeverityWarning,
+		Title:       "Signature expiration far in the future",
+		Description: "Valid until ledger 2000000 (current: 1000000, delta: 1000000, limit: 10000)",
+		Rationale:   "A distant expiration means the signature can be reused for longer. If the signed invocation is malicious or buggy, the window for abuse is larger.",
+	}
+	want := "[warning] EXPIRATION_FAR_FUTURE: Signature expiration far in the future\n  Valid until ledger 2000000 (current: 1000000, delta: 1000000, limit: 10000)\n  rationale: A distant expiration means the signature can be reused for longer. If the signed invocation is malicious or buggy, the window for abuse is larger."
+	got := f.String()
+	if got != want {
+		t.Errorf("String() output mismatch:\n got:\n%s\n want:\n%s", got, want)
+	}
+}
+
+// TestFindingStringDoesNotPanic verifies String() never panics on pathological values.
+func TestFindingStringDoesNotPanic(t *testing.T) {
+	// Very long fields
+	long := Finding{
+		Code:        strings.Repeat("X", 10000),
+		Severity:    SeverityCritical,
+		Title:       strings.Repeat("Y", 10000),
+		Description: strings.Repeat("Z", 10000),
+		Rationale:   strings.Repeat("W", 10000),
+	}
+	_ = long.String() // Should not panic
+
+	// Empty fields
+	empty := Finding{}
+	_ = empty.String() // Should not panic
 }

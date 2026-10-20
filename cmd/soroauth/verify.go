@@ -112,6 +112,29 @@ func newVerifyEntryOutput(report soroauth.VerificationReport) verifyEntryOutput 
 	return out
 }
 
+// String renders the verification output for a terminal, using the library's
+// VerificationReport.String() format. This ensures consistency between
+// programmatic and CLI output.
+func (v verifyEntryOutput) String() string {
+	// Reconstruct a VerificationReport to use its String method
+	report := soroauth.VerificationReport{
+		CredentialType:   v.CredentialType,
+		AddressBound:     v.AddressBound,
+		Address:          v.Address,
+		ValidUntilLedger: v.ValidUntilLedger,
+		Note:             v.Note,
+		Nodes:            make([]soroauth.NodeVerdict, 0, len(v.Nodes)),
+	}
+	for _, node := range v.Nodes {
+		report.Nodes = append(report.Nodes, soroauth.NodeVerdict{
+			Address: node.Address,
+			Verdict: soroauth.VerifyVerdict(node.Verdict),
+			Reason:  node.Reason,
+		})
+	}
+	return report.String()
+}
+
 // verifyFailed reports whether a report has a node that is not a pass.
 //
 // It is the fail-closed reading of the report: cannot_check is a failure
@@ -243,7 +266,9 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 			return newErrorf(ExitGeneralError, "encoding the report: %w", err)
 		}
 	} else {
-		writeVerifyText(stdout, outputs, input.IsEnvelope)
+		for _, out := range outputs {
+			fmt.Fprint(stdout, out.String())
+		}
 	}
 
 	if failed {
@@ -301,7 +326,7 @@ func runVerifyBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reade
 		run.result(in.Index, out)
 		if !jsonFlag {
 			fmt.Fprintf(stdout, "entry %d:\n", in.Index)
-			writeVerifyText(stdout, []verifyEntryOutput{out}, false)
+			fmt.Fprint(stdout, out.String())
 		}
 	}
 

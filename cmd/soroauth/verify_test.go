@@ -50,10 +50,10 @@ func TestVerifySubcommandAcceptsASignedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)
 	}
-	if !strings.Contains(stdout, "verified") {
+	if !strings.Contains(stdout, "VERIFIED") {
 		t.Errorf("stdout does not report a verified node: %q", stdout)
 	}
-	if !strings.Contains(stdout, "result: verified") {
+	if !strings.Contains(stdout, "credential nodes verified") {
 		t.Errorf("stdout does not carry the verified result line: %q", stdout)
 	}
 }

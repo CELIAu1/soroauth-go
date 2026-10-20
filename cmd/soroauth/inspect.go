@@ -66,12 +66,12 @@ func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) str
 	configFlag := flags.String("config", "", "path to CLI configuration file (default $SOROAUTH_CONFIG or ~/.config/soroauth/config.json)")
 	entryFlag := flags.String("entry", "", "the authorization entry or transaction envelope, as base64 XDR")
 	entriesFlag := flags.String("entries", "", "a file of entries to inspect, one base64 entry per line, or - for stdin")
-	// inspect's success output is already the JSON report described above;
-	// --json exists only so every subcommand accepts the same flag, and here
-	// it additionally makes a usage or decode error come back as a JSON
-	// object on stdout instead of plain text on stderr, matching every other
-	// subcommand's --json contract.
-	jsonFlag := flags.Bool("json", false, "accepted for consistency with other subcommands; inspect's output is always JSON")
+	// inspect's success output is JSON by default; --text renders using
+	// EntryInfo.String() for a terminal. --json exists for consistency with
+	// other subcommands and makes a usage or decode error come back as a JSON
+	// object on stdout instead of plain text on stderr.
+	jsonFlag := flags.Bool("json", false, "output as JSON (default)")
+	textFlag := flags.Bool("text", false, "output as human-readable text using EntryInfo.String()")
 
 	if err := flags.Parse(args); err != nil {
 		return newErrorf(ExitUsageError, "%w", err)
@@ -92,7 +92,7 @@ func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) str
 			newErrorf(ExitUsageError, "--entry and --entries are mutually exclusive"))
 	}
 	if *entriesFlag != "" {
-		return runInspectBatch(stdout, stderr, *entriesFlag, stdin, jsonMode)
+		return runInspectBatch(stdout, stderr, *entriesFlag, stdin, jsonMode, *textFlag)
 	}
 	if *entryFlag == "" {
 		return writeJSONError(stdout, jsonMode,
@@ -123,10 +123,19 @@ func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) str
 		report = info
 	}
 
-	// inspect's success output is already JSON, so --json is a true no-op
-	// here: the report is always pretty-printed the same way, with or
-	// without the flag, and existing scripts that called inspect before
-	// --json existed keep getting byte-identical output.
+	if *textFlag {
+		// Use the library's String() method for text output.
+		if input.IsEnvelope {
+			for i, info := range report.([]soroauth.EntryInfo) {
+				fmt.Fprintf(stdout, "entry %d:\n%s\n", i+1, info.String())
+			}
+		} else {
+			fmt.Fprint(stdout, report.(soroauth.EntryInfo).String())
+		}
+		return nil
+	}
+
+	// Default JSON output.
 	encoded, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "encoding the report: %w", err))
@@ -139,7 +148,7 @@ func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) str
 // input is the same one inspect prints for a single entry; the batch wrapper
 // only adds the index and the per-input error handling described in the usage
 // text.
-func runInspectBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, jsonFlag bool) error {
+func runInspectBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, jsonFlag, textFlag bool) error {
 	inputs, err := readBatchEntries("--entries", entriesFlag, stdin)
 	if err != nil {
 		return writeJSONError(stdout, jsonFlag, err)
@@ -166,11 +175,15 @@ func runInspectBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Read
 
 		run.result(in.Index, info)
 		if !jsonFlag {
-			encoded, err := json.MarshalIndent(info, "", "  ")
-			if err != nil {
-				return newErrorf(ExitGeneralError, "encoding the report: %w", err)
+			if textFlag {
+				fmt.Fprintf(stdout, "entry %d:\n%s\n", in.Index, info.String())
+			} else {
+				encoded, err := json.MarshalIndent(info, "", "  ")
+				if err != nil {
+					return newErrorf(ExitGeneralError, "encoding the report: %w", err)
+				}
+				fmt.Fprintf(stdout, "entry %d:\n%s\n", in.Index, string(encoded))
 			}
-			fmt.Fprintf(stdout, "entry %d:\n%s\n", in.Index, string(encoded))
 		}
 	}
 

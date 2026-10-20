@@ -941,3 +941,76 @@ func TestVerifyAllWithOptionsAndErrors(t *testing.T) {
 	assert.NoError(t, results[1].Error)
 	assert.Equal(t, 1, results[1].Index)
 }
+
+// TestAuthorizeAllCollectsValidationErrors proves that validation failures
+// (missing signers, unsupported credentials, etc.) are collected and joined
+// with errors.Join, while the first signing failure still stops immediately.
+// Each joined error names its entry index and address, and errors.Is still
+// matches every sentinel.
+func TestAuthorizeAllCollectsValidationErrors(t *testing.T) {
+	// Two entries, both missing signers: both validation errors should be collected.
+	absent1 := testKeypair(t, "soroauth-absent-1").Address()
+	absent2 := testKeypair(t, "soroauth-absent-2").Address()
+	entries := []xdr.SorobanAuthorizationEntry{
+		entryForSigner(t, "soroauth-absent-1", xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1),
+		entryForSigner(t, "soroauth-absent-2", xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 2),
+	}
+	goodSigner := NewEd25519Signer(testKeypair(t, "soroauth-batch-idx-good"))
+
+	_, err := AuthorizeAll(context.Background(), entries, []Signer{goodSigner},
+		testValidUntilLedger, network.TestNetworkPassphrase)
+	require.Error(t, err)
+
+	// The joined error should contain both missing signer errors.
+	var missingSignerErr *MissingSignerError
+	require.True(t, errors.As(err, &missingSignerErr), "joined error should contain MissingSignerError")
+	// errors.Is should match ErrMissingSigner through the join.
+	require.True(t, errors.Is(err, ErrMissingSigner), "errors.Is should match ErrMissingSigner through the join")
+
+	// The message should mention both entry indices and addresses.
+	msg := err.Error()
+	require.Contains(t, msg, "entry 0")
+	require.Contains(t, msg, "entry 1")
+	require.Contains(t, msg, absent1)
+	require.Contains(t, msg, absent2)
+
+	// The first missing signer's address should be the one on the MissingSignerError.
+	require.Equal(t, absent1, missingSignerErr.Address)
+}
+
+// TestAuthorizeAllSigningFailureStopsImmediately proves that a signing failure
+// (which has side effects) stops the batch immediately and is not joined with
+// other errors.
+func TestAuthorizeAllSigningFailureStopsImmediately(t *testing.T) {
+	const goodLabel = "soroauth-good"
+	const badLabel = "soroauth-bad"
+
+	goodEntry := entryForSigner(t, goodLabel, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1)
+	badEntry := entryForSigner(t, badLabel, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 2)
+	badAddr := testKeypair(t, badLabel).Address()
+
+	entries := []xdr.SorobanAuthorizationEntry{goodEntry, badEntry}
+
+	// Both entries have their signers available, but the second signer fails.
+	signerError := errors.New("hardware signer refused")
+	signers := []Signer{
+		NewEd25519Signer(testKeypair(t, goodLabel)),
+		SignerFunc(badAddr,
+			func(context.Context, xdr.HashIdPreimage, [32]byte) (xdr.ScVal, error) {
+				return xdr.ScVal{}, signerError
+			}),
+	}
+
+	_, err := AuthorizeAll(context.Background(), entries, signers,
+		testValidUntilLedger, network.TestNetworkPassphrase)
+	require.Error(t, err)
+
+	// The error should be the signing failure, not joined with anything.
+	msg := err.Error()
+	require.Contains(t, msg, "entry 1 ("+badAddr+"): signer "+badAddr)
+	require.Contains(t, msg, "hardware signer refused")
+	require.False(t, strings.Contains(msg, "entry 0"), "good entry should not appear in signing failure message")
+
+	// errors.Is should match the signer's error.
+	require.True(t, errors.Is(err, signerError), "errors.Is should match the signer's error")
+}

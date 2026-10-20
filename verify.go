@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"strings"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
@@ -119,6 +120,68 @@ func (r VerificationReport) HasUnsignedNodes() bool {
 		}
 	}
 	return false
+}
+
+// String renders the verification report for a terminal, verdict first.
+//
+// The first line is the overall result. Subsequent lines detail each
+// credential node's verdict and reason. For a source-account entry, the
+// note explains why there is nothing to verify.
+func (r VerificationReport) String() string {
+	var out strings.Builder
+
+	// Overall verdict first.
+	if r.CredentialType == CredentialTypeSourceAccount {
+		out.WriteString("source_account (no payload to verify)")
+		if r.Note != "" {
+			out.WriteString(": " + r.Note)
+		}
+		out.WriteString("\n")
+		return out.String()
+	}
+
+	verified := r.Verified()
+	hasUnsigned := r.HasUnsignedNodes()
+
+	if verified {
+		out.WriteString("VERIFIED: all credential nodes verified")
+	} else if hasUnsigned {
+		out.WriteString("NOT VERIFIED: unsigned node(s) present")
+	} else {
+		out.WriteString("NOT VERIFIED: invalid or uncheckable node(s)")
+	}
+
+	if r.Address != "" {
+		fmt.Fprintf(&out, " [%s]", r.Address)
+	}
+	if r.CredentialType != "" {
+		fmt.Fprintf(&out, " [%s]", r.CredentialType)
+	}
+	out.WriteString("\n")
+
+	if r.ValidUntilLedger != 0 {
+		fmt.Fprintf(&out, "  valid until ledger: %d\n", r.ValidUntilLedger)
+	}
+	if r.AddressBound {
+		out.WriteString("  address-bound: yes\n")
+	}
+
+	if len(r.Nodes) > 0 {
+		out.WriteString("\ncredential nodes:\n")
+		for _, node := range r.Nodes {
+			if node.Reason != "" {
+				fmt.Fprintf(&out, "  %s: %s (%s)\n", node.Address, node.Verdict, node.Reason)
+			} else {
+				fmt.Fprintf(&out, "  %s: %s\n", node.Address, node.Verdict)
+			}
+		}
+	}
+
+	if r.Note != "" {
+		fmt.Fprintf(&out, "\nnote: %s\n", r.Note)
+	}
+
+	return out.String()
 }
 
 // parseAccountSignature reads back the single {public_key, signature} map the

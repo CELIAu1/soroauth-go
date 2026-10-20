@@ -3,6 +3,7 @@ package soroauth
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -216,38 +217,47 @@ func AuthorizeAll(
 		}
 	}
 
+	// Phase 1: Validation - collect all pre-flight errors without side effects.
+	// This includes: unsupported credentials, missing signers, delegate plan mismatches,
+	// and delegate plan wrapping errors (which don't sign, just restructure).
+	var validationErrors []error
 	usedPlans := make(map[string]bool, len(config.delegatePlans))
-	out := make([]xdr.SorobanAuthorizationEntry, 0, len(entries))
-	// topAddresses carries each entry's top-level address, in input order,
-	// so a failure after the main loop (the RequireAllSigned check) can
-	// still name the entry it is reporting. It is empty for source-account
-	// entries, which that check skips.
+	// topAddresses carries each entry's top-level address, in input order.
 	topAddresses := make([]string, len(entries))
+	// preparedEntries holds the entries after validation (wrapped, etc.) ready for signing.
+	preparedEntries := make([]xdr.SorobanAuthorizationEntry, len(entries))
+	// matchedSigners holds the signers matched for each entry.
+	matchedSigners := make([][]Signer, len(entries))
 
 	for i, entry := range entries {
 		if entry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
 			copied, err := xdrcopy.Copy(entry)
 			if err != nil {
-				return nil, fmt.Errorf("soroauth: authorize all: entry %d (source account): %w", i, err)
+				validationErrors = append(validationErrors, fmt.Errorf("entry %d (source account): %w", i, err))
+				continue
 			}
-			out = append(out, copied)
+			preparedEntries[i] = copied
+			// Source account entries need no signers.
 			continue
 		}
 
 		credentials, err := addressCredentials(entry.Credentials)
 		if err != nil {
-			return nil, fmt.Errorf("soroauth: authorize all: entry %d (credentials type %d): %w", i, entry.Credentials.Type, err)
+			validationErrors = append(validationErrors, fmt.Errorf("entry %d (credentials type %d): %w", i, entry.Credentials.Type, err))
+			continue
 		}
 		address, err := FormatAddress(credentials.Address)
 		if err != nil {
-			return nil, fmt.Errorf("soroauth: authorize all: entry %d (<unformattable address>): %w", i, err)
+			validationErrors = append(validationErrors, fmt.Errorf("entry %d (<unformattable address>): %w", i, err))
+			continue
 		}
 		topAddresses[i] = address
 
 		if plan, ok := config.delegatePlans[address]; ok {
 			wrapped, err := WithDelegates(entry, validUntilLedger, plan.Delegates, plan.TopSignature)
 			if err != nil {
-				return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): delegate plan: %w", i, address, err)
+				validationErrors = append(validationErrors, fmt.Errorf("entry %d (%s): delegate plan: %w", i, address, err))
+				continue
 			}
 			entry = wrapped
 			usedPlans[address] = true
@@ -255,32 +265,55 @@ func AuthorizeAll(
 
 		matched, _, err := signersForEntry(entry, signers)
 		if err != nil {
-			return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): %w", i, address, err)
+			validationErrors = append(validationErrors, fmt.Errorf("entry %d (%s): %w", i, address, err))
+			continue
 		}
 		if len(matched) == 0 {
-			return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): %w", i, address,
-				&MissingSignerError{Address: address})
+			validationErrors = append(validationErrors, fmt.Errorf("entry %d (%s): %w", i, address,
+				&MissingSignerError{Address: address}))
+			continue
 		}
 
-		signed := entry
-		for _, signer := range matched {
+		preparedEntries[i] = entry
+		matchedSigners[i] = matched
+	}
+
+	// Check for unmatched delegate plans.
+	for address := range config.delegatePlans {
+		if !usedPlans[address] {
+			validationErrors = append(validationErrors, fmt.Errorf("%s: %w", address, &DelegatePlanUnmatchedError{Address: address}))
+		}
+	}
+
+	// If any validation errors, join them and return (no signing attempted).
+	if len(validationErrors) > 0 {
+		return nil, fmt.Errorf("soroauth: authorize all: %w", errors.Join(validationErrors...))
+	}
+
+	// Phase 2: Execution - sign each entry, stopping on first signing failure.
+	out := make([]xdr.SorobanAuthorizationEntry, 0, len(entries))
+	for i := range entries {
+		// Source account entries were already copied in validation phase.
+		if entries[i].Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
+			out = append(out, preparedEntries[i])
+			continue
+		}
+
+		signed := preparedEntries[i]
+		for _, signer := range matchedSigners[i] {
+			var err error
 			signed, err = AuthorizeEntry(ctx, signed, signer, validUntilLedger, networkPassphrase,
 				ForAddress(signer.Address()))
 			if err != nil {
 				return nil, fmt.Errorf("soroauth: authorize all: entry %d (%s): signer %s: %w",
-					i, address, signer.Address(), err)
+					i, topAddresses[i], signer.Address(), err)
 			}
 		}
 
 		out = append(out, signed)
 	}
 
-	for address := range config.delegatePlans {
-		if !usedPlans[address] {
-			return nil, fmt.Errorf("soroauth: authorize all: %s: %w", address, &DelegatePlanUnmatchedError{Address: address})
-		}
-	}
-
+	// RequireAllSigned check (post-signing validation).
 	if config.requireAllSigned {
 		for i := range out {
 			if out[i].Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
