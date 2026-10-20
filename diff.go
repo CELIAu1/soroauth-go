@@ -396,6 +396,20 @@ func functionTypeName(t xdr.SorobanAuthorizedFunctionType) string {
 // Either entry may be any of the four arms, including source-account on one side
 // and an address arm on the other; any other credentials value returns
 // ErrUnsupportedCredentials.
+//
+// A worked example of the four ways two entries can differ, assuming an
+// address-bound arm and a top-level node that keeps its signature bytes:
+//
+//	changed field                  PayloadChanged  carried-over signature
+//	nothing (Identical)            false           valid
+//	signature only                 false           valid
+//	payload field only (e.g.       true            stale — listed in
+//	  nonce, expiration, args)                       StaleSignatures
+//	payload field and a fresh      true            valid — the re-sign case
+//	  signature on every node
+//
+// The middle two rows are the distinction the report exists to draw: a diff
+// shows two lines either way, and only the payload row means the entry will//	fail in the host.
 func DiffEntries(a, b xdr.SorobanAuthorizationEntry) (EntryDiff, error) {
 	armA, err := armName(a.Credentials.Type)
 	if err != nil {
