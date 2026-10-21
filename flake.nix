@@ -94,7 +94,7 @@
           # or go.sum changes; `nix build` prints the correct value when this
           # one is stale, and it is committed here so a build never needs the
           # network beyond the pinned nixpkgs input.
-          vendorHash = "sha256-aFpigj+nc+2w397iRZv2L7/0E5R8BjNDCrc1WGLS2d4=";
+          vendorHash = "sha256-WTwsxJkQaWoxxEPCeig7P8hKqfsySe4YGS/7O9++dXU=";
 
           meta = {
             description = "Build, sign and inspect Soroban authorization entries";
