@@ -1,9 +1,9 @@
 # soroauth: Python bindings for the soroauth Soroban authorization signing library
 
 This package provides Python access to the soroauth Go library for constructing,
-signing, and inspecting Soroban authorization entries. It wraps the C ABI
-shared library built from the Go source, so no Go toolchain is required at
-install time—only the platform-appropriate wheel.
+signing, and inspecting Soroban authorization entries. It wraps the C ABI shared
+library built from the Go source, so no Go toolchain is required at install
+time—only the platform-appropriate wheel.
 
 ## Installation
 
@@ -11,8 +11,8 @@ install time—only the platform-appropriate wheel.
 pip install soroauth
 ```
 
-Pre-built wheels are provided for Linux (x86_64, aarch64) and macOS
-(x86_64, arm64) on Python 3.9+.
+Pre-built wheels are provided for Linux (x86_64, aarch64) and macOS (x86_64,
+arm64) on Python 3.9+.
 
 ## Quick Start
 
@@ -60,6 +60,7 @@ except soroauth.SoroauthError as e:
 ```
 
 Available exception types:
+
 - `SourceAccountCredentialsError`
 - `UnsupportedCredentialsError`
 - `NoMatchingCredentialNodeError`
@@ -79,6 +80,7 @@ Available exception types:
 Builds the `HashIdPreimage` and its 32-byte SHA-256 payload for an entry.
 
 Returns a `PreimageResult` with:
+
 - `preimage_xdr`: base64 XDR of the `HashIdPreimage`
 - `payload_hex`: hex-encoded 32-byte payload hash
 
@@ -87,6 +89,7 @@ Returns a `PreimageResult` with:
 Hashes an already-constructed preimage to its 32-byte payload.
 
 Returns a `PayloadResult` with:
+
 - `payload_hex`: hex-encoded 32-byte payload hash
 
 ### Signing
@@ -97,24 +100,30 @@ Signs an entry using a 32-byte ed25519 seed (hex-encoded). Deterministic path
 for testing and local demos.
 
 Returns a `SignResult` with:
+
 - `entry_b64`: base64 XDR of the signed entry
 
 #### `authorize_with_seeds(entry_b64, valid_until_ledger, network_passphrase, seeds_hex_list, for_address=None) -> SignResult`
 
-Signs an entry with one or more 32-byte ed25519 seeds (hex-encoded, comma-separated string). One seed produces a single-key signature; two or more produce an `AccountMultiSigner` signature vector (sorted by public key, max 20 keys).
+Signs an entry with one or more 32-byte ed25519 seeds (hex-encoded,
+comma-separated string). One seed produces a single-key signature; two or more
+produce an `AccountMultiSigner` signature vector (sorted by public key, max 20
+keys).
 
 #### `write_signature(entry_b64, valid_until_ledger, network_passphrase, for_address, signature_scval_b64) -> SignResult`
 
 Writes an externally produced signature `ScVal` (base64 XDR) onto every
-credential node whose address matches. Used by remote signers (passkey,
-hardware wallet, etc.).
+credential node whose address matches. Used by remote signers (passkey, hardware
+wallet, etc.).
 
 ### Inspection
 
 #### `inspect(entry_b64) -> dict`
 
 Returns the entry's structure as a dictionary matching `EntryInfo`:
-- `credential_type`: one of `source_account`, `address`, `address_v2`, `address_with_delegates`
+
+- `credential_type`: one of `source_account`, `address`, `address_v2`,
+  `address_with_delegates`
 - `address_bound`: bool
 - `address`: top-level address (if applicable)
 - `nonce`: int (if applicable)
@@ -130,6 +139,7 @@ Returns the entry's structure as a dictionary matching `EntryInfo`:
 #### `analyze(entry_b64, current_ledger=None, max_delegate_depth=None, max_total_delegates=None, max_valid_until_ledger_delta=None, known_contracts=None, max_sub_invocations=None) -> list[dict]`
 
 Runs the risk analyzer and returns a list of findings, each a dict with:
+
 - `code`: finding code (e.g., `EXPIRATION_FAR_FUTURE`, `UNSIGNED_DELEGATES`)
 - `severity`: `critical`, `warning`, or `info`
 - `title`: human-readable title
@@ -157,17 +167,17 @@ Returns the ABI version string.
 This binding mirrors the Go library's honesty boundaries exactly:
 
 - **Cannot check custom accounts**: A node addressed to a `C...` contract or
-  carrying a non-built-in signature shape is reported as `cannot_check`,
-  never as `verified`. Only the account's own `__check_auth` defines validity.
+  carrying a non-built-in signature shape is reported as `cannot_check`, never
+  as `verified`. Only the account's own `__check_auth` defines validity.
 - **Unsigned is not verified**: An unsigned node (Void or empty vector) is
   reported as `unsigned`, not `verified`. CAP-71-01 permits a Void top-level
   signature when only delegates authenticate.
-- **No on-chain state**: Whether a key is actually a signer, or whether
-  enough signers met the threshold, are account-state questions this library
-  cannot see offline.
-- **Structural only**: `inspect` and `analyze` report what an entry *says*,
-  not what it *means*. They do not decode contract arguments or verify
-  contract behavior.
+- **No on-chain state**: Whether a key is actually a signer, or whether enough
+  signers met the threshold, are account-state questions this library cannot see
+  offline.
+- **Structural only**: `inspect` and `analyze` report what an entry _says_, not
+  what it _means_. They do not decode contract arguments or verify contract
+  behavior.
 
 ## Building from Source
 
@@ -197,8 +207,8 @@ pip install -e .[dev]
 pytest tests/
 ```
 
-The tests require the golden vectors in `../../../testdata/vectors/` relative
-to the package root.
+The tests require the golden vectors in `../../../testdata/vectors/` relative to
+the package root.
 
 ## License
 
