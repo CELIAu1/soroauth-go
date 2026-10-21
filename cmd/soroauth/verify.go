@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -70,6 +71,12 @@ Nothing is signed and no key is involved.
 What a green result does and does not guarantee — custom accounts, expiration,
 nonce consumption — is stated in docs/verification-limits.md in the source
 repository.
+
+--network accepts testnet, futurenet, public, rpc (fetch from RPC endpoint),
+or a literal network passphrase. When rpc is given, the passphrase is fetched
+from the configured RPC endpoint (--rpc-url or $SOROAUTH_RPC_URL) and printed
+so the caller sees which network they are verifying against. A fetch failure is
+an error, never a fall-through to a default network.
 `
 
 // verifyNodeOutput is one credential node's verdict in the JSON report.
@@ -193,7 +200,7 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 	}
 	if *entriesFlag != "" {
 		return runVerifyBatch(stdout, stderr, *entriesFlag, stdin,
-			resolvedNet, *validUntil, *allowUnsigned, jsonMode)
+			resolvedNet, *validUntil, *allowUnsigned, jsonMode, getenv, cfg, set)
 	}
 	if *entryFlag == "" {
 		return writeJSONError(stdout, jsonMode,
@@ -204,7 +211,9 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
-	passphrase, err := resolveNetwork(resolvedNet)
+	// Resolve the network passphrase, which may fetch from an RPC endpoint if "rpc" is given.
+	resolvedRPC := resolveRPCURLValue(set, "", getenv, cfg, "").Value
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
@@ -280,8 +289,9 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 // runVerifyBatch applies verify to every input in the file, with the same
 // per-entry handling the usage text describes: every input is attempted, each
 // outcome carries its position, and the exit code is the FIRST failure's.
-func runVerifyBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, networkFlag string, validUntil uint, allowUnsigned, jsonFlag bool) error {
-	passphrase, err := resolveNetwork(networkFlag)
+func runVerifyBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, networkFlag string, validUntil uint, allowUnsigned, jsonFlag bool, getenv func(string) string, cfg loadedConfig, set map[string]bool) error {
+	resolvedRPC := resolveRPCURLValue(set, "", getenv, cfg, "").Value
+	passphrase, err := resolveNetwork(context.Background(), networkFlag, resolvedRPC, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonFlag, err)
 	}

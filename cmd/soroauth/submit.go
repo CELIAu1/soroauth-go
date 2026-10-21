@@ -59,6 +59,12 @@ exit codes:
   0  success
   1  general error (unreachable endpoint, or the transaction failed on-chain)
   2  usage error (missing flags, an unsigned entry, or --entry is not an envelope)
+
+--network accepts testnet, futurenet, public, rpc (fetch from RPC endpoint),
+or a literal network passphrase. When rpc is given, the passphrase is fetched
+from the configured RPC endpoint (--rpc-url or $SOROAUTH_RPC_URL) and printed
+so the caller sees which network they are submitting to. A fetch failure is
+an error, never a fall-through to a default network.
 `
 
 // defaultSubmitTimeout bounds the whole submit: the enforcing pass, the send
@@ -132,7 +138,7 @@ func runSubmit(args []string, stdout, stderr io.Writer, getenv func(string) stri
 			"submitting needs an RPC endpoint: pass --rpc-url <url> or set SOROAUTH_RPC_URL"))
 	}
 
-	passphrase, err := resolveNetwork(*networkFlag)
+	passphrase, err := resolveNetwork(context.Background(), *networkFlag, endpoint, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, *jsonFlag, err)
 	}

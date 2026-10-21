@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/soroauth/soroauth-go"
+	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
@@ -193,20 +194,67 @@ var cliSubcommands = map[string]cliSubcommand{
 	},
 }
 
+// networkResolver fetches the network passphrase from an RPC endpoint.
+// It is a function type so the resolve path can be exercised without a network.
+type networkResolver func(ctx context.Context, rpcURL string) (string, error)
+
+// fetchNetworkPassphrase asks an RPC endpoint for its network passphrase.
+//
+// The endpoint is whatever the caller passed to --rpc-url or set in
+// SOROAUTH_RPC_URL; this command does not invent one. The network passphrase
+// is read-only, so no credential is involved and nothing here signs.
+func fetchNetworkPassphrase(ctx context.Context, rpcURL string) (string, error) {
+	client := rpcclient.NewClient(rpcURL, nil)
+	defer func() { _ = client.Close() }()
+
+	net, err := client.GetNetwork(ctx)
+	if err != nil {
+		return "", fmt.Errorf("soroauth: rpc %s: getNetwork: %w", rpcURL, err)
+	}
+	if net.Passphrase == "" {
+		return "", fmt.Errorf("soroauth: rpc %s: getNetwork returned empty passphrase", rpcURL)
+	}
+	return net.Passphrase, nil
+}
+
 // resolveNetwork turns the --network flag into a passphrase. The three named
-// networks are shorthands; anything else is taken as a literal passphrase, so
-// a standalone network or a quickstart container all work without
-// this tool needing to know about them.
-func resolveNetwork(value string) (string, error) {
+// networks are shorthands; "rpc" fetches the passphrase from the configured
+// RPC endpoint; anything else is taken as a literal passphrase, so a
+// standalone network or a quickstart container all work without this tool
+// needing to know about them.
+//
+// When "rpc" is given, the resolved passphrase is printed so the user sees
+// which network they are about to commit to. A fetch failure is an error,
+// never a fall-through to a default network.
+func resolveNetwork(ctx context.Context, value string, rpcURL string, getenv func(string) string, fetch networkResolver) (string, error) {
 	switch value {
 	case "":
-		return "", newErrorf(ExitUsageError, "--network is required (testnet, futurenet, public, or a literal passphrase)")
+		return "", newErrorf(ExitUsageError, "--network is required (testnet, futurenet, public, rpc, or a literal passphrase)")
 	case "testnet":
 		return network.TestNetworkPassphrase, nil
 	case "futurenet":
 		return network.FutureNetworkPassphrase, nil
 	case "public":
 		return network.PublicNetworkPassphrase, nil
+	case "rpc":
+		if rpcURL == "" {
+			rpcURL = resolveRPCURL("", getenv)
+		}
+		if rpcURL == "" {
+			return "", newErrorf(ExitUsageError,
+				"--network rpc resolves against an RPC endpoint and needs one: "+
+					"pass --rpc-url <url> or set SOROAUTH_RPC_URL")
+		}
+		passphrase, err := fetch(ctx, rpcURL)
+		if err != nil {
+			return "", newErrorf(ExitGeneralError,
+				"--network rpc could not fetch the network passphrase from %s: %w", rpcURL, err)
+		}
+		// Report the resolved passphrase so the user sees which network they
+		// are about to commit to. This is the point: a silent correct answer
+		// teaches the user nothing.
+		fmt.Fprintf(os.Stderr, "soroauth: resolved network passphrase from %s: %s\n", rpcURL, passphrase)
+		return passphrase, nil
 	default:
 		return value, nil
 	}
@@ -408,6 +456,7 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 	var secretEnvVar string
 	var forAddress string
 	var configFlag string
+	var rpcURL string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -428,6 +477,11 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 		case "--network":
 			if i+1 < len(args) {
 				networkPassphrase = args[i+1]
+				i++
+			}
+		case "--rpc-url":
+			if i+1 < len(args) {
+				rpcURL = args[i+1]
 				i++
 			}
 		case "--secret-env":
@@ -457,6 +511,7 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 	}
 	netVal := resolveNetworkValue(nil, networkPassphrase, getenv, cfg).Value
 	secVal := resolveSecretEnvValue(nil, secretEnvVar, getenv, cfg).Value
+	rpcVal := resolveRPCURLValue(nil, rpcURL, getenv, cfg, "").Value
 
 	if entryB64 == "" || validUntilLedger == 0 || netVal == "" || secVal == "" {
 		fmt.Fprint(stderr, tuiUsage)
@@ -464,7 +519,7 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 	}
 
 	// Resolve network passphrase
-	passphrase, err := resolveNetwork(netVal)
+	passphrase, err := resolveNetwork(context.Background(), netVal, rpcVal, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return err
 	}
@@ -479,7 +534,8 @@ Interactive TUI for inspecting and signing an authorization entry.
 flags:
   --entry        base64-encoded authorization entry (required)
   --valid-until  signature expiration ledger (required)
-  --network      network passphrase: testnet, futurenet, public, or literal (required)
+  --network      network passphrase: testnet, futurenet, public, rpc, or literal (required)
+  --rpc-url      RPC endpoint used to resolve --network rpc (default $SOROAUTH_RPC_URL)
   --secret-env   name of environment variable holding the secret seed (required)
   --for          target address to sign for (optional, defaults to signer's address)
   --config       path to CLI configuration file (default $SOROAUTH_CONFIG or ~/.config/soroauth/config.json)

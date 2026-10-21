@@ -42,5 +42,155 @@
 // signing; the README's "The two-pass simulation requirement" section explains
 // why.
 //
+// # Exported constants
+//
+// The following constants are the values a caller switches on. They are grouped
+// by the type or decision each belongs to. Strings marked "stable" are safe to
+// persist in config, logs, or databases; strings not marked stable are
+// implementation details that may change between versions.
+//
+// Credential type names (stable — Inspect and the CLI report these)
+//
+//	CredentialTypeSourceAccount        = "source_account"
+//	CredentialTypeAddress              = "address"
+//	CredentialTypeAddressV2            = "address_v2"
+//	CredentialTypeAddressWithDelegates = "address_with_delegates"
+//
+// Credential arms (stable — same values as the credential type names)
+//
+//	ArmSourceAccount        = "source_account"
+//	ArmAddress              = "address"
+//	ArmAddressV2            = "address_v2"
+//	ArmAddressWithDelegates = "address_with_delegates"
+//
+// Decode limits (numeric constants, stable)
+//
+//	MaxDecodeDepth       = 64
+//	MaxDecodeInputBytes  = 1 << 20 (1 MiB decoded)
+//
+// Signature shapes (stable — DescribeSignature returns these)
+//
+//	SignatureShapePasskey  = "passkey"
+//	SignatureShapeMap      = "map"
+//	SignatureShapeUnknown  = "unknown"
+//
+// Verification verdicts (stable — VerifyEntry and CheckPossession return these)
+//
+//	VerdictVerified      = "verified"
+//	VerdictUnsigned      = "unsigned"
+//	VerdictInvalid       = "invalid"
+//	VerdictCannotCheck   = "cannot_check"
+//
+// Error sentinels (stable — every function that can fail wraps one of these)
+//
+//	ErrSourceAccountCredentials
+//	ErrUnsupportedCredentials
+//	ErrNoMatchingCredentialNode
+//	ErrDuplicateDelegate
+//	ErrSignatureMismatch
+//	ErrMissingSigner
+//	ErrAlreadySigned
+//	ErrInvalidExpiration
+//	ErrTooManySignatures
+//	ErrDecodeLimit
+//	ErrNoInvokeOperation
+//	ErrUnsupportedEnvelope
+//	ErrUnsignedCredentialNode
+//	ErrDelegatePlanUnmatched
+//	ErrNonceAlreadyReserved
+//	ErrWebAuthnMalformedJSON
+//	ErrWebAuthnMissingField
+//	ErrWebAuthnMalformedField
+//	ErrWebAuthnTruncatedAuthenticatorData
+//	ErrWebAuthnChallengeMismatch
+//	ErrSignerAddressMismatch
+//	ErrVaultUnauthorized
+//	ErrVaultKeyNotFound
+//	ErrVaultKeyType
+//	ErrLedgerUnavailable
+//	ErrLedgerLocked
+//	ErrLedgerWrongApp
+//	ErrLedgerBlindSigningDisabled
+//	ErrLedgerDenied
+//	ErrAttestationMalformed
+//	ErrAttestationInvalid
+//	ErrAttestationUnsupportedFormat
+//	ErrPolicyRefusal
+//	ErrSignerTransient
+//	ErrChainExhausted
+//	ErrQuorumNotMet
+//	ErrQuorumDisagreement
+//
+// Chain outcomes (stable — signer chain audit records use these)
+//
+//	ChainSucceeded          = "succeeded"
+//	ChainTransientFailure   = "transient_failure"
+//	ChainTerminalFailure    = "terminal_failure"
+//	ChainSkipped            = "skipped"
+//
+// Diff change kinds (stable — DiffEntries reports these)
+//
+//	ChangeKindArm              = "arm"
+//	ChangeKindAddress          = "address"
+//	ChangeKindNonce            = "nonce"
+//	ChangeKindExpiration       = "expiration"
+//	ChangeKindInvocation       = "invocation"
+//	ChangeKindDelegateAdded    = "delegate_added"
+//	ChangeKindDelegateRemoved  = "delegate_removed"
+//	ChangeKindSignature        = "signature"
+//
+// Attestation formats (stable — WebAuthn §8)
+//
+//	AttestationFormatNone  = "none"
+//	AttestationFormatPacked = "packed"
+//
+// Attestation trust levels (stable — VerifyAttestation returns these)
+//
+//	AttestationTrustNone    = "none"
+//	AttestationTrustSelf    = "self"
+//	AttestationTrustUnrooted = "unrooted"
+//	AttestationTrustRooted   = "rooted"
+//
+// Hook phases (stable — Hook.Event receives these)
+//
+//	HookPhasePreimage = "preimage"
+//	HookPhaseSign     = "sign"
+//	HookPhasePostSign = "post_sign"
+//	HookPhaseWrite    = "write"
+//
+// Signer capabilities (bitmask, stable numeric values)
+//
+//	CapabilityDeterministic    = 1
+//	CapabilityInteractive      = 2
+//	CapabilityRemote           = 4
+//	CapabilityBatchedPresence  = 8
+//
+// Finding severities (stable — Analyze reports these)
+//
+//	SeverityInfo     = "info"
+//	SeverityWarning  = "warning"
+//	SeverityCritical = "critical"
+//
+// Protocol versions (ArmProtocolVersion map — values from CAP preambles, stable)
+//
+//	CredentialTypeSourceAccount        → 20 (CAP-46-11)
+//	CredentialTypeAddress              → 20 (CAP-46-11)
+//	CredentialTypeAddressV2            → 27 (CAP-71-01)
+//	CredentialTypeAddressWithDelegates → 27 (CAP-71-01)
+//
+// P-256 key sizes (numeric constants, stable)
+//
+//	Secp256r1PublicKeySize  = 65 (uncompressed SEC1)
+//	Secp256r1SignatureSize  = 64 (fixed-width r || s)
+//
+// Classic account signature limit (numeric constant, stable — host-enforced)
+//
+//	maxAccountSignatures = 20 (not exported; ErrTooManySignatures is the exported sentinel)
+//
+// Internal constants (not stable — do not persist)
+//
+//	possessionNetworkPassphrase = "soroauth possession check - this is not a network"
+//	possessionFunction          = "soroauth_possession_check"
+//
 // Status: v0.1.0, unaudited.
 package soroauth

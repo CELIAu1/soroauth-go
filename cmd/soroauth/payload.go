@@ -48,6 +48,12 @@ With --json, prints a single JSON object with fields "preimage" and "payload"
 for a single entry, or an array of objects with those fields plus
 "operation_index", "entry_index" and "source_account" for an envelope. On
 error, prints a JSON object with field "error" to stdout and exits non-zero.
+
+--network accepts testnet, futurenet, public, rpc (fetch from RPC endpoint),
+or a literal network passphrase. When rpc is given, the passphrase is fetched
+from the configured RPC endpoint (--rpc-url or $SOROAUTH_RPC_URL) and printed
+so the caller sees which network they are computing the payload for. A fetch
+failure is an error, never a fall-through to a default network.
 `
 
 type payloadOutput struct {
@@ -114,11 +120,11 @@ func runPayloadWithStdin(args []string, stdout, stderr io.Writer, getenv func(st
 		return writeJSONError(stdout, jsonMode, err)
 	}
 	resolvedNet := resolveNetworkValue(set, *networkFlag, getenv, cfg).Value
-	passphrase, err := resolveNetwork(resolvedNet)
+	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
-	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
 	expiration, err := resolveValidUntil(context.Background(), uint64(*validUntil), *validFor, resolvedRPC, fetchLatestLedger)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)

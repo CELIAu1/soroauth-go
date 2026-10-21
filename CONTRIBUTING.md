@@ -1044,6 +1044,25 @@ since a method on an unexported type is not reachable through godoc.
 - **Fail closed.** Where the protocol or the caller's intent is ambiguous,
   refuse and return an error rather than guess. Say which reading you chose in
   the commit message.
+
+  This rule governs every ambiguous decision in the codebase. Three clear
+  applications:
+  1. **Target-address rule** (`authorize.go`, `ValidateForSigning`): a signature
+     is only ever written onto a credential node whose address equals the
+     target. When nothing matches, the call fails with
+     `ErrNoMatchingCredentialNode` rather than writing the signature somewhere
+     it does not belong.
+  2. **Re-sign refusal** (`authorize.go`, `AuthorizeEntry`): re-signing a node
+     with a different expiration would silently invalidate every other signature
+     in a delegates entry. The call fails with `ErrAlreadySigned` unless the
+     caller explicitly passes `AllowResign`.
+  3. **Decode limits** (`decode.go`, `DecodeAuthorizationEntry`): untrusted
+     input that exceeds `MaxDecodeDepth` or `MaxDecodeInputBytes` is refused
+     with `ErrDecodeLimit` rather than attempting unbounded work on
+     attacker-chosen input.
+
+  The chosen reading goes in the commit message.
+
 - **Cited protocol claims.** Any statement about host behaviour in a doc
   comment, README or commit message needs a source — the CAP, the
   `rs-soroban-env` file and function, or the SDK file and line. Not memory.

@@ -86,6 +86,12 @@ and exits non-zero.
 In batch mode each signed entry is labelled with its 1-based input position:
 without --json each is preceded by an "entry N:" line, and with --json the
 report is one array of {"entry": N, "result": {"signed_entry": "..."}}.
+
+--network accepts testnet, futurenet, public, rpc (fetch from RPC endpoint),
+or a literal network passphrase. When rpc is given, the passphrase is fetched
+from the configured RPC endpoint (--rpc-url or $SOROAUTH_RPC_URL) and printed
+so the caller sees which network they are signing for. A fetch failure is
+an error, never a fall-through to a default network.
 `
 
 type signOutput struct {
@@ -152,11 +158,11 @@ func runSignWithStdin(args []string, stdout, stderr io.Writer, getenv func(strin
 	}
 
 	resolvedNet := resolveNetworkValue(set, *networkFlag, getenv, cfg).Value
-	passphrase, err := resolveNetwork(resolvedNet)
+	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
-	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
 	expiration, err := resolveValidUntil(context.Background(), uint64(*validUntil), *validFor, resolvedRPC, fetchLatestLedger)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
