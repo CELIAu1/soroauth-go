@@ -36,7 +36,7 @@ body:
     id: version
     attributes:
       label: soroauth version or commit
-      placeholder: v0.1.0, or a commit SHA
+      placeholder: vX.Y.Z, or a commit SHA
     validations:
       required: true
 

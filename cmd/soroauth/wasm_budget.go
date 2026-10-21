@@ -92,6 +92,7 @@ exit codes:
 // build is over budget or under it.
 func runWASMBudget(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("wasm-budget", flag.ContinueOnError)
+	registerVerbosityFlags(fs)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprint(stderr, wasmBudgetUsage)
@@ -106,13 +107,15 @@ func runWASMBudget(args []string, stdout, stderr io.Writer) error {
 	buildCmd := fs.String("build-cmd", "", "command to build the artifact before measuring")
 
 	if err := fs.Parse(args); err != nil {
-		return newErrorf(ExitUsageError, "%w", err)
+		return writeJSONError(stdout, *jsonOutput, newErrorf(ExitUsageError, "%w", err))
 	}
 	if *budgetBytes <= 0 {
-		return newErrorf(ExitUsageError, "--budget must be greater than zero, got %d", *budgetBytes)
+		return writeJSONError(stdout, *jsonOutput,
+			withField("--budget", newErrorf(ExitUsageError, "--budget must be greater than zero, got %d", *budgetBytes)))
 	}
 	if *prevSize < 0 {
-		return newErrorf(ExitUsageError, "--prev-size must not be negative, got %d", *prevSize)
+		return writeJSONError(stdout, *jsonOutput,
+			withField("--prev-size", newErrorf(ExitUsageError, "--prev-size must not be negative, got %d", *prevSize)))
 	}
 
 	if *buildCmd != "" {
@@ -124,13 +127,15 @@ func runWASMBudget(args []string, stdout, stderr io.Writer) error {
 			if len(output) > 0 {
 				fmt.Fprintf(stderr, "%s\n", output)
 			}
-			return fmt.Errorf("wasm budget: building the artifact: %w", err)
+			return writeJSONError(stdout, *jsonOutput,
+				withField("--build-cmd", newErrorf(ExitGeneralError, "wasm budget: building the artifact: %w", err)))
 		}
 	}
 
 	fi, err := os.Stat(*wasmOut)
 	if err != nil {
-		return fmt.Errorf("wasm budget: measuring %s: %w", *wasmOut, err)
+		return writeJSONError(stdout, *jsonOutput,
+			withField("--out", newErrorf(ExitGeneralError, "wasm budget: measuring %s: %w", *wasmOut, err)))
 	}
 
 	result := WASMBudgetResult{
@@ -143,10 +148,17 @@ func runWASMBudget(args []string, stdout, stderr io.Writer) error {
 		result.Delta = fi.Size() - *prevSize
 	}
 
+	if result.Exceeded && *jsonOutput {
+		return writeJSONError(stdout, true, withField("--budget", newErrorf(ExitGeneralError,
+			"wasm budget: %s is %d bytes, over the %d byte budget by %d",
+			*wasmOut, result.Size, result.Budget, result.Size-result.Budget)))
+	}
+
 	if *jsonOutput {
 		encoded, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
-			return fmt.Errorf("wasm budget: encoding the result: %w", err)
+			return writeJSONError(stdout, true,
+				newErrorf(ExitGeneralError, "wasm budget: encoding the result: %w", err))
 		}
 		fmt.Fprintln(stdout, string(encoded))
 	} else {
@@ -162,7 +174,7 @@ func runWASMBudget(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if result.Exceeded {
-		return fmt.Errorf("wasm budget: %s is %d bytes, over the %d byte budget by %d",
+		return newErrorf(ExitGeneralError, "wasm budget: %s is %d bytes, over the %d byte budget by %d",
 			*wasmOut, result.Size, result.Budget, result.Size-result.Budget)
 	}
 	return nil

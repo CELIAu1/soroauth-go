@@ -72,9 +72,14 @@ type batchInput struct {
 // batchResult is one element of a batch JSON report: the input's index and
 // exactly one of its result or its error.
 type batchResult struct {
-	Entry  int    `json:"entry"`
-	Result any    `json:"result,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Entry         int    `json:"entry"`
+	Result        any    `json:"result,omitempty"`
+	Error         string `json:"error,omitempty"`
+	SchemaVersion int    `json:"schema_version,omitempty"`
+	Code          string `json:"code,omitempty"`
+	Message       string `json:"message,omitempty"`
+	Field         string `json:"field,omitempty"`
+	ExitCode      int    `json:"exit_code,omitempty"`
 }
 
 // batchRun accumulates the per-input outcomes of one batch subcommand and
@@ -98,7 +103,16 @@ func (b *batchRun) result(index int, result any) {
 // fail records an input that produced no result, carrying its error into the
 // report. The first failure also decides the run's exit code.
 func (b *batchRun) fail(index int, err error) {
-	b.results = append(b.results, batchResult{Entry: index, Error: err.Error()})
+	fields := machineError(err)
+	b.results = append(b.results, batchResult{
+		Entry:         index,
+		Error:         fields.Message,
+		SchemaVersion: fields.SchemaVersion,
+		Code:          fields.Code,
+		Message:       fields.Message,
+		Field:         fields.Field,
+		ExitCode:      fields.ExitCode,
+	})
 	b.recordFailure(err)
 }
 
@@ -165,8 +179,9 @@ func (b *batchRun) signSummary() error {
 	if b.first != nil {
 		code = ExitCode(b.first)
 	}
-	return newErrorf(code, "no signed output was written: %d of %d entries could not be signed: %s",
-		b.failed, b.total, strings.Join(parts, "; "))
+	return withField("--entries", newErrorf(code,
+		"no signed output was written: %d of %d entries could not be signed: %s",
+		b.failed, b.total, strings.Join(parts, "; ")))
 }
 
 // labelBatchError prefixes a per-input error with the flag that read it. It is

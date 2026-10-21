@@ -24,6 +24,12 @@ name: links
 #             is in.
 
 on:
+  # Unfiltered on purpose. A paths-filtered workflow produces no check row
+  # at all when it does not match, so filtering here would hide this check
+  # from exactly the pull request that needed it. Both of this check's
+  # failures on main were invisible for that reason, and the job takes
+  # seconds.
+  pull_request:
   push:
     branches: [main]
     paths:

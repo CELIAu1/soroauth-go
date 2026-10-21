@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -49,5 +50,24 @@ func TestTUIHonoursContextDeadline(t *testing.T) {
 	err = TUI(ctx, entryB64, testValidUntilLedger, network.TestNetworkPassphrase, "NONEXISTENT_ENV_VAR", "")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("error %v does not match context.DeadlineExceeded", err)
+	}
+}
+
+// TestTUIWithOutputHonoursContextCancellation covers the writer-injected entry
+// point used by the CLI's --quiet mode.
+func TestTUIWithOutputHonoursContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entry := entryForArm(t, xdr.SorobanCredentialsTypeSorobanCredentialsAddressV2, 1)
+	entryBytes, err := entry.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshalling entry: %v", err)
+	}
+	entryB64 := base64.StdEncoding.EncodeToString(entryBytes)
+
+	err = TUIWithOutput(ctx, entryB64, testValidUntilLedger, network.TestNetworkPassphrase, "NONEXISTENT_ENV_VAR", "", io.Discard)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not match context.Canceled", err)
 	}
 }

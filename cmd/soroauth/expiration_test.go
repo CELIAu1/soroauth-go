@@ -319,17 +319,16 @@ func TestValidForJSONFailureStaysOnStdout(t *testing.T) {
 		t.Errorf("stderr should be empty in JSON mode, got %q", stderr)
 	}
 
-	var out struct {
-		Error string `json:"error"`
-	}
+	var out jsonErrorOutput
 	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
 		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 	}
-	if out.Error == "" {
-		t.Error("the JSON error object has an empty error field")
+	if out.SchemaVersion != jsonErrorSchemaVersion || out.Code != "usage_error" ||
+		out.Message == "" || out.Field != "--valid-for" || out.ExitCode != ExitUsageError {
+		t.Errorf("unexpected structured JSON error: %+v", out)
 	}
-	if !strings.Contains(out.Error, "--rpc-url") {
-		t.Errorf("the JSON error does not name --rpc-url: %q", out.Error)
+	if out.Error != out.Message {
+		t.Errorf("compatibility error = %q, message = %q", out.Error, out.Message)
 	}
 	if strings.Contains(stdout, "usage:") {
 		t.Error("stdout contains usage text in JSON error mode")

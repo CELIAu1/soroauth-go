@@ -52,6 +52,7 @@ type manOutput struct {
 
 func runMan(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("man", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, manUsage)
@@ -63,14 +64,14 @@ func runMan(args []string, stdout, stderr io.Writer) error {
 	jsonFlag := flags.Bool("json", false, "output as JSON")
 
 	if err := flags.Parse(args); err != nil {
-		return newErrorf(ExitUsageError, "%w", err)
+		return writeJSONError(stdout, *jsonFlag, newErrorf(ExitUsageError, "%w", err))
 	}
 	// Refused rather than resolved by precedence: a caller that asked for the
 	// page on stdout and in a file does not get to be surprised about which
 	// one happened.
 	if *outFlag != "" && *jsonFlag {
 		return writeJSONError(stdout, *jsonFlag,
-			newErrorf(ExitUsageError, "--out and --json are mutually exclusive"))
+			withField("--out", newErrorf(ExitUsageError, "--out and --json are mutually exclusive")))
 	}
 
 	page := manPage()
@@ -127,7 +128,7 @@ func manPage() string {
 	b.WriteString(".I command\n")
 	b.WriteString(".B \\-h\n")
 	b.WriteString("for a command's own flags. With --json, a command prints a single JSON\n")
-	b.WriteString("object on stdout and, on failure, a JSON object with an \"error\" field.\n")
+	b.WriteString("object on stdout and, on failure, a versioned JSON error with code, message, field and exit code.\n")
 
 	b.WriteString(".SH COMMANDS\n")
 	for _, cmd := range commandSpecs {

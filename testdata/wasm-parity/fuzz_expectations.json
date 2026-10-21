@@ -4,7 +4,8 @@
   "valid_until_ledger": 1234567,
   "network_passphrase": "Test SDF Network ; September 2015",
   "non_replayed_targets": [
-    "FuzzDiffEntries"
+    "FuzzDiffEntries",
+    "FuzzCanonicalJSON"
   ],
   "cases": {
     "FuzzDecodeAuthorizationEntry/delegates_chain_depth_57_0": {

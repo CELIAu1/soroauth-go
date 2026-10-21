@@ -81,6 +81,7 @@ func runPayload(args []string, stdout, stderr io.Writer, getenv func(string) str
 // --valid-for falls back to $SOROAUTH_RPC_URL.
 func runPayloadWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("payload", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, payloadUsage)
@@ -121,7 +122,7 @@ func runPayloadWithStdin(args []string, stdout, stderr io.Writer, getenv func(st
 	}
 	resolvedNet := resolveNetworkValue(set, *networkFlag, getenv, cfg).Value
 	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
-	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
@@ -148,6 +149,14 @@ func runPayloadWithStdin(args []string, stdout, stderr io.Writer, getenv func(st
 	payload, err := soroauth.Payload(preimage)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "%w", err))
+	}
+	if flagVerbose(flags) {
+		info, inspectErr := soroauth.Inspect(input.Entry)
+		arm := "unknown"
+		if inspectErr == nil {
+			arm = info.CredentialType
+		}
+		fmt.Fprintf(stderr, "soroauth: payload: arm=%s expiration=%d payload_bytes=%d\n", arm, expiration, len(payload))
 	}
 	encoded, err := xdr.MarshalBase64(preimage)
 	if err != nil {

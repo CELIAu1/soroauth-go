@@ -141,7 +141,7 @@ distribute or pin — the identity policy _is_ the verification.
 go install github.com/sigstore/cosign/v3/cmd/cosign@latest
 gh auth login   # gh attestation verify reads GitHub's API
 
-tag=v0.2.0
+tag="$(gh release view --repo soroauth/soroauth-go --json tagName --jq .tagName)"
 gh release download "$tag" --repo soroauth/soroauth-go --dir release-assets
 cd release-assets
 
@@ -270,6 +270,30 @@ something a script drives, so it has no `--json` mode.
 | `man`           | `format`, `page`                                                                                                                            | `error`                                             |
 | `wasm-budget`   | `size`, `budget`, `exceeded`, and optional `previous_size` and `delta`                                                                      | `error`                                             |
 
+### Output levels — `--quiet` and `--verbose`
+
+Every subcommand accepts `--quiet` and `--verbose`; the two are mutually
+exclusive. `--quiet` keeps a successful run silent while preserving its exit
+code, which is what a script wants:
+
+```sh
+soroauth verify --entry "$ENTRY" --network testnet --quiet
+```
+
+A failure still returns the command's normal exit code. `--verbose` adds the
+reasoning behind a verdict on stderr, naming the rule or credential node it
+applied. For example, `inspect --verbose` reports the credential arm and
+delegate count, and `verify --verbose` reports one verdict per node:
+
+```sh
+soroauth verify --entry "$ENTRY" --network testnet --verbose
+# soroauth: verify: entry: node G...: verified
+# soroauth: verify: ok
+```
+
+Neither flag changes `--json` output, and neither ever echoes an entry or a
+secret. Help, completions and the man page list both flags.
+
 ### Worked invocation — JSON output
 
 ```sh
@@ -359,8 +383,8 @@ line, because one envelope carries several entries — select them first.
 Every result is labelled with its 1-based position, and one bad line never ends
 the run: `entry N:` on stdout for a result, `entry N: <why>` on stderr for a
 failure, and the exit code is the first failure's. With `--json` the report is a
-single array — `{"entry": N, "result": ...}` or `{"entry": N, "error": "..."}` —
-so it composes with `jq`:
+single array — `{"entry": N, "result": ...}` or an entry with `error` plus the
+versioned machine-readable error fields — so it composes with `jq`:
 
 ```sh
 # Inspect a list; one labelled report per entry
@@ -681,7 +705,7 @@ soroauth --version
 ```
 
 ```
-soroauth v0.2.0
+soroauth <release-tag>
 commit: 9f1c3ab
 built: 2026-09-28T11:04:02Z
 go: go1.25.4
@@ -780,16 +804,18 @@ that runs on version tags (`v*`). It:
 To cut a release:
 
 ```sh
-# Update CHANGELOG.md with the new version's entries
-git tag v0.2.0
-git push origin v0.2.0
+# Update the changelog, current-version status lines, CITATION.cff, the OpenAPI
+# example, and both the wasm package and wallet example dependency to match.
+tag=vX.Y.Z
+git tag "$tag"
+git push origin "$tag"
 ```
 
-The workflow will refuse to publish if the golden drift check fails, so a
-release is only created when the library is provably byte-identical to the
-reference implementation. It is only green when the release it just published
-verifies, so a release whose signatures or attestations are broken stays red
-rather than being announced.
+The release preflight blocks publication unless the changelog, documented
+release versions, and reproducible vectors match the tag, and every workflow's
+latest conclusion on the tagged commit is successful. The release is only green
+when the artifacts it just published verify, so a release whose signatures or
+attestations are broken stays red rather than being announced.
 
 ## Quickstart
 
@@ -1255,6 +1281,134 @@ It is intentionally narrow:
 
 This is a deliberate boundary: soroauth signs the protocol-defined bytes and
 reports the structure; it does not replace the rest of the Stellar toolchain.
+
+## CLI flag reference
+
+<!-- BEGIN GENERATED CLI FLAGS -->
+
+| Command       | Flag                | Value   | Description                                                                                           |
+| ------------- | ------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| payload       | --config            | <value> | path to CLI configuration file                                                                        |
+| payload       | --entry             | <value> | authorization entry or transaction envelope, as base64 XDR                                            |
+| payload       | --valid-until       | <value> | the last ledger at which the signature is valid                                                       |
+| payload       | --valid-for         | <value> | the signature lifetime in ledgers, resolved against the current ledger (needs --rpc-url)              |
+| payload       | --rpc-url           | <value> | RPC endpoint used to resolve --valid-for (default $SOROAUTH_RPC_URL)                                  |
+| payload       | --network           | <value> | testnet, futurenet, public, or a literal network passphrase                                           |
+| payload       | --json              | —       | output as JSON                                                                                        |
+| payload       | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| payload       | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| sign          | --config            | <value> | path to CLI configuration file                                                                        |
+| sign          | --entry             | <value> | authorization entry or transaction envelope, as base64 XDR                                            |
+| sign          | --entries           | <value> | a file of entries to sign, one base64 entry per line, or - for stdin                                  |
+| sign          | --valid-until       | <value> | the last ledger at which the signature is valid                                                       |
+| sign          | --valid-for         | <value> | the signature lifetime in ledgers, resolved against the current ledger (needs --rpc-url)              |
+| sign          | --rpc-url           | <value> | RPC endpoint used to resolve --valid-for (default $SOROAUTH_RPC_URL)                                  |
+| sign          | --network           | <value> | testnet, futurenet, public, or a literal network passphrase                                           |
+| sign          | --secret-env        | <value> | name of the environment variable holding the seed                                                     |
+| sign          | --assertion         | <value> | path to a WebAuthn assertion JSON file, or - for stdin                                                |
+| sign          | --signer-cmd        | <value> | path to an external signer executable speaking the remote protocol over stdin/stdout                  |
+| sign          | --signer-timeout    | <value> | timeout for the external signer executable                                                            |
+| sign          | --for               | <value> | credential node to sign, when it is not the signer's own address                                      |
+| sign          | --json              | —       | output as JSON                                                                                        |
+| sign          | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| sign          | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| simulate      | --entry             | <value> | the transaction envelope to simulate, as base64 XDR                                                   |
+| simulate      | --rpc-url           | <value> | RPC endpoint to simulate against (default $SOROAUTH_RPC_URL)                                          |
+| simulate      | --use-upgraded-auth | —       | ask the host to record the address-bound V2 arm (best-effort)                                         |
+| simulate      | --timeout           | <value> | how long to wait for the simulation                                                                   |
+| simulate      | --json              | —       | output as JSON                                                                                        |
+| simulate      | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| simulate      | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| submit        | --entry             | <value> | the signed transaction envelope, as base64 XDR                                                        |
+| submit        | --network           | <value> | testnet, futurenet, public, or a literal network passphrase                                           |
+| submit        | --secret-env        | <value> | name of the environment variable holding the source account's seed                                    |
+| submit        | --rpc-url           | <value> | RPC endpoint to submit to (default $SOROAUTH_RPC_URL)                                                 |
+| submit        | --allow-unsigned    | —       | submit even though an address entry is unsigned (the host will refuse it)                             |
+| submit        | --timeout           | <value> | how long to wait for the enforcing pass, the send and the poll                                        |
+| submit        | --json              | —       | output as JSON                                                                                        |
+| submit        | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| submit        | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| delegates     | --config            | <value> | path to CLI configuration file                                                                        |
+| delegates     | --entry             | <value> | the authorization entry, as base64 XDR                                                                |
+| delegates     | --valid-until       | <value> | the last ledger at which the signatures are valid                                                     |
+| delegates     | --valid-for         | <value> | the signature lifetime in ledgers, resolved against the current ledger (needs --rpc-url)              |
+| delegates     | --rpc-url           | <value> | RPC endpoint used to resolve --valid-for (default $SOROAUTH_RPC_URL)                                  |
+| delegates     | --delegate          | <value> | a delegate address; repeat for several                                                                |
+| delegates     | --nested-json       | <value> | JSON string defining nested delegate tree                                                             |
+| delegates     | --json              | —       | output as JSON                                                                                        |
+| delegates     | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| delegates     | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| inspect       | --config            | <value> | path to CLI configuration file                                                                        |
+| inspect       | --entry             | <value> | the authorization entry or transaction envelope, as base64 XDR                                        |
+| inspect       | --entries           | <value> | a file of entries to inspect, one base64 entry per line, or - for stdin                               |
+| inspect       | --json              | —       | accepted for consistency; inspect's output is always JSON                                             |
+| inspect       | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| inspect       | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| tree          | --config            | <value> | path to CLI configuration file                                                                        |
+| tree          | --entry             | <value> | the authorization entry or transaction envelope, as base64 XDR                                        |
+| tree          | --format            | <value> | tree rendering: ascii or dot                                                                          |
+| tree          | --json              | —       | output structured JSON instead of a rendering                                                         |
+| tree          | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| tree          | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| tui           | --config            | <value> | path to CLI configuration file                                                                        |
+| tui           | --entry             | <value> | base64-encoded authorization entry (required)                                                         |
+| tui           | --valid-until       | <value> | signature expiration ledger (required)                                                                |
+| tui           | --network           | <value> | testnet, futurenet, public, or a literal passphrase (required)                                        |
+| tui           | --secret-env        | <value> | name of environment variable holding the secret seed (required)                                       |
+| tui           | --for               | <value> | target address to sign for (optional)                                                                 |
+| tui           | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| tui           | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| doctor        | --config            | <value> | path to CLI configuration file                                                                        |
+| doctor        | --network           | <value> | testnet, futurenet, public, or a literal network passphrase                                           |
+| doctor        | --rpc-url           | <value> | URL to check network reachability against                                                             |
+| doctor        | --secret-env        | <value> | name of an environment variable holding the signing seed; checked for presence and key control        |
+| doctor        | --address           | <value> | account the signer is meant to sign for                                                               |
+| doctor        | --format            | <value> | output format: text or json                                                                           |
+| doctor        | --timeout           | <value> | timeout for the network check                                                                         |
+| doctor        | --json              | —       | output as JSON                                                                                        |
+| doctor        | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| doctor        | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| cross-compile | --json              | —       | emit results as JSON (one object per line)                                                            |
+| cross-compile | --targets           | <value> | comma-separated GOOS/GOARCH pairs (default: all)                                                      |
+| cross-compile | --output-dir        | <value> | directory to write binaries (default: stdout only)                                                    |
+| cross-compile | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| cross-compile | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| verify        | --config            | <value> | path to CLI configuration file                                                                        |
+| verify        | --entry             | <value> | the authorization entry or transaction envelope, as base64 XDR                                        |
+| verify        | --entries           | <value> | a file of entries to verify, one base64 entry per line, or - for stdin                                |
+| verify        | --network           | <value> | testnet, futurenet, public, or a literal network passphrase                                           |
+| verify        | --valid-until       | <value> | assert the expiration the entry carries (optional)                                                    |
+| verify        | --allow-unsigned    | —       | accept unsigned nodes (a Void top-level node of a delegates entry is legitimate under CAP-71-01)      |
+| verify        | --json              | —       | output as JSON                                                                                        |
+| verify        | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| verify        | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| diff          | --config            | <value> | path to CLI configuration file                                                                        |
+| diff          | --before            | <value> | the first authorization entry, as base64 XDR                                                          |
+| diff          | --after             | <value> | the second authorization entry, as base64 XDR                                                         |
+| diff          | --before-entries    | <value> | a file of entries to compare, one base64 entry per line, or - for stdin; paired with --after-entries  |
+| diff          | --after-entries     | <value> | a file of entries to compare, one base64 entry per line, or - for stdin; paired with --before-entries |
+| diff          | --json              | —       | output as JSON                                                                                        |
+| diff          | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| diff          | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| completions   | --shell             | <value> | which shell: bash, zsh, or fish                                                                       |
+| completions   | --json              | —       | output as JSON                                                                                        |
+| completions   | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| completions   | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| man           | --out               | <value> | write the page to this path instead of stdout                                                         |
+| man           | --json              | —       | output as JSON                                                                                        |
+| man           | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| man           | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| wasm-budget   | --out               | <value> | path to the wasm artifact to measure                                                                  |
+| wasm-budget   | --budget            | <value> | maximum allowed size in bytes                                                                         |
+| wasm-budget   | --prev-size         | <value> | previous release's size, for a delta                                                                  |
+| wasm-budget   | --build-cmd         | <value> | command to build the artifact before measuring                                                        |
+| wasm-budget   | --json              | —       | output the result as JSON                                                                             |
+| wasm-budget   | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
+| wasm-budget   | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
+| soroauth      | --help              | —       | Print this help                                                                                       |
+| soroauth      | --version           | —       | Print the build version, commit and Go version                                                        |
+
+<!-- END GENERATED CLI FLAGS -->
 
 ## Status
 

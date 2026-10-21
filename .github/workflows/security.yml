@@ -84,6 +84,65 @@ jobs:
             echo "in the pull request before the change can merge."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Advisory workflows run on push to main, not on pull requests, so a failure
+  # in one is discovered after a merge and then stays invisible: nothing on a
+  # later pull request mentions it. ci-packaging was red from the commit that
+  # introduced it and nobody saw it for four merges; spellcheck was red across
+  # three; four workflows were red when the Go floor moved.
+  #
+  # This reports main's current state on every pull request, so inherited
+  # breakage is visible at the one moment someone is looking. It is deliberately
+  # NOT a required check: the pull request that fixes a red main would otherwise
+  # be blocked by the very failure it repairs.
+  main-health:
+    name: main health
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: report any workflow currently failing on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          red=0
+          {
+            echo "## main health"
+            echo
+            echo "| workflow | latest run on main | commit |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in .github/workflows/*.yml; do
+            n="$(basename "$f")"
+            r="$(gh run list --repo "$GITHUB_REPOSITORY" --branch main --workflow "$n" \
+                   --limit 1 --json status,conclusion,headSha \
+                   -q '.[]|"\(.status)|\(.conclusion)|\(.headSha[0:7])"' 2>/dev/null || true)"
+            [ -z "$r" ] && continue
+            st="${r%%|*}"; rest="${r#*|}"; concl="${rest%%|*}"; sha="${rest##*|}"
+            [ "$st" != "completed" ] && concl="$st"
+            case "$concl" in
+              failure|timed_out|startup_failure)
+                echo "| \`$n\` | **$concl** | \`$sha\` |" >> "$GITHUB_STEP_SUMMARY"
+                echo "::warning title=main is red::$n is $concl on main at $sha"
+                red=$((red+1));;
+            esac
+          done
+          if [ "$red" -eq 0 ]; then
+            echo "| — | all green | — |" >> "$GITHUB_STEP_SUMMARY"
+            echo "every workflow is green on main"
+          else
+            {
+              echo
+              echo "$red workflow(s) are failing on \`main\` **before this pull request**."
+              echo "Merging onto a red main is how a failure survives for weeks unnoticed."
+              echo "If this pull request is the fix, say so in the description."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "$red workflow(s) failing on main"
+            exit 1
+          fi
+
   # The Go query suite. `init` installs the CodeQL database and the Go
   # extractor, `go build` feeds it the packages, and `analyze` uploads the
   # SARIF results to GitHub code scanning. Findings are triaged in

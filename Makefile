@@ -188,6 +188,7 @@ fuzz:
 	$(GO) test -run '^$$' -fuzz FuzzDecodeAuthorizationEntry -fuzztime $(FUZZTIME) .
 	$(GO) test -run '^$$' -fuzz FuzzVerifyEntry -fuzztime $(FUZZTIME) .
 	$(GO) test -run '^$$' -fuzz FuzzDiffEntries -fuzztime $(FUZZTIME) .
+	$(GO) test -run '^$$' -fuzz FuzzCanonicalJSON -fuzztime $(FUZZTIME) .
 	$(GO) test -run '^$$' -fuzz FuzzCopyRoundTrip -fuzztime $(FUZZTIME) ./internal/xdrcopy
 
 # The long-running counterpart to the race detector: soak_test.go's

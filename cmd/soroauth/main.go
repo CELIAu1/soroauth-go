@@ -142,7 +142,17 @@ func runWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) s
 		return runCompleteAddresses(args[1:], stdout)
 	}
 	if command, ok := cliSubcommands[args[0]]; ok {
-		return command(args[1:], stdout, stderr, getenv, stdin)
+		cleaned, level, err := splitVerbosity(args[0], args[1:])
+		if err != nil {
+			return err
+		}
+		commandOut, commandErr, flush := verbosityOutput(stdout, stderr, level)
+		err = command(cleaned, commandOut, commandErr, getenv, stdin)
+		if level.verbose && !hasHelpFlag(cleaned) {
+			verboseResult(stderr, args[0], err)
+		}
+		flush(err)
+		return err
 	}
 
 	switch args[0] {
@@ -155,6 +165,17 @@ func runWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) s
 		fmt.Fprint(stderr, usage)
 		return newErrorf(ExitUsageError, "unknown command %q", args[0])
 	}
+}
+
+// hasHelpFlag reports whether the command was asked for help, in which case
+// --verbose has no verdict to explain.
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+	}
+	return false
 }
 
 type cliSubcommand func([]string, io.Writer, io.Writer, func(string) string, io.Reader) error
@@ -226,7 +247,7 @@ func fetchNetworkPassphrase(ctx context.Context, rpcURL string) (string, error) 
 // When "rpc" is given, the resolved passphrase is printed so the user sees
 // which network they are about to commit to. A fetch failure is an error,
 // never a fall-through to a default network.
-func resolveNetwork(ctx context.Context, value string, rpcURL string, getenv func(string) string, fetch networkResolver) (string, error) {
+func resolveNetwork(ctx context.Context, value string, rpcURL string, stderr io.Writer, getenv func(string) string, fetch networkResolver) (string, error) {
 	switch value {
 	case "":
 		return "", newErrorf(ExitUsageError, "--network is required (testnet, futurenet, public, rpc, or a literal passphrase)")
@@ -253,7 +274,7 @@ func resolveNetwork(ctx context.Context, value string, rpcURL string, getenv fun
 		// Report the resolved passphrase so the user sees which network they
 		// are about to commit to. This is the point: a silent correct answer
 		// teaches the user nothing.
-		fmt.Fprintf(os.Stderr, "soroauth: resolved network passphrase from %s: %s\n", rpcURL, passphrase)
+		fmt.Fprintf(stderr, "soroauth: resolved network passphrase from %s: %s\n", rpcURL, passphrase)
 		return passphrase, nil
 	default:
 		return value, nil
@@ -436,12 +457,11 @@ func (e *jsonErrorHandled) Unwrap() error { return e.error }
 // main() knows not to print to stderr again.
 func writeJSONError(stdout io.Writer, jsonFlag bool, err error) error {
 	if jsonFlag {
-		type jsonError struct {
-			Error string `json:"error"`
-		}
 		enc := json.NewEncoder(stdout)
 		enc.SetEscapeHTML(false)
-		_ = enc.Encode(jsonError{Error: err.Error()})
+		if encodeErr := enc.Encode(newJSONErrorOutput(err)); encodeErr != nil {
+			return newErrorf(ExitGeneralError, "encoding the JSON error: %w", encodeErr)
+		}
 		return &jsonErrorHandled{err}
 	}
 	return err
@@ -499,6 +519,10 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 				configFlag = args[i+1]
 				i++
 			}
+		case "--quiet", "--verbose", "--quiet=true", "--verbose=true", "--quiet=false", "--verbose=false":
+			// The dispatcher consumes these before runTUI. Keep the cases so a
+			// direct caller of runTUI, and the usage-driven spec test, still
+			// accept what the CLI advertises.
 		case "--help", "-h":
 			fmt.Fprint(stdout, tuiUsage)
 			return nil
@@ -519,12 +543,12 @@ func runTUI(args []string, stdout, stderr io.Writer, getenv func(string) string)
 	}
 
 	// Resolve network passphrase
-	passphrase, err := resolveNetwork(context.Background(), netVal, rpcVal, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), netVal, rpcVal, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return err
 	}
 
-	return soroauth.TUI(context.Background(), entryB64, validUntilLedger, passphrase, secVal, forAddress)
+	return soroauth.TUIWithOutput(context.Background(), entryB64, validUntilLedger, passphrase, secVal, forAddress, stdout)
 }
 
 const tuiUsage = `usage: soroauth tui --entry <base64> --valid-until <ledger> --network <passphrase> --secret-env <var> [--for <addr>] [--config <path>]
@@ -539,6 +563,8 @@ flags:
   --secret-env   name of environment variable holding the secret seed (required)
   --for          target address to sign for (optional, defaults to signer's address)
   --config       path to CLI configuration file (default $SOROAUTH_CONFIG or ~/.config/soroauth/config.json)
+  --quiet        print nothing on success; the exit code is the result
+  --verbose      explain the verdict on stderr without printing the entry or a secret
 
 The seed is read from the named environment variable and is never prompted for
 or echoed. If stdin is not a TTY, the command degrades to non-interactive output

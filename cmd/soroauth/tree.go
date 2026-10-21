@@ -48,6 +48,7 @@ exit codes:
 
 func runTree(args []string, stdout, stderr io.Writer, getenv func(string) string) error {
 	flags := flag.NewFlagSet("tree", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, treeUsage)

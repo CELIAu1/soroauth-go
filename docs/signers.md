@@ -44,8 +44,8 @@ they do not carry the same threat model or the same level of evidence.
 ## Evidence and the production bar
 
 This repository does not claim that any signer is audited. The library as a
-whole is still `v0.1.0` and `unaudited`. The ones with real live proof in this
-repo are the ones used in the live testnet scenarios and golden vectors:
+whole remains `unaudited`. The ones with real live proof in this repo are the
+ones used in the live testnet scenarios and golden vectors:
 
 - `NewEd25519Signer`
 - `NewAccountMultiSigner`
@@ -189,7 +189,7 @@ without additional review:
 
 ## Status
 
-All shipped signers are `unaudited` as part of this library's `v0.1.0` status.
-That is not a recommendation to avoid them; it is a reminder that the difference
-between a signer type and a safe production deployment is the operating model
-around the key, not just the Go implementation.
+The library as a whole is v0.1.0 and **unaudited**. That is not a recommendation
+to avoid them; it is a reminder that the difference between a signer type and a
+safe production deployment is the operating model around the key, not just the
+Go implementation.

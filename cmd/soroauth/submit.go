@@ -98,6 +98,7 @@ type submitRequest struct {
 
 func runSubmit(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("submit", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, submitUsage)
@@ -138,7 +139,7 @@ func runSubmit(args []string, stdout, stderr io.Writer, getenv func(string) stri
 			"submitting needs an RPC endpoint: pass --rpc-url <url> or set SOROAUTH_RPC_URL"))
 	}
 
-	passphrase, err := resolveNetwork(context.Background(), *networkFlag, endpoint, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), *networkFlag, endpoint, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, *jsonFlag, err)
 	}

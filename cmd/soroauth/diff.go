@@ -123,6 +123,7 @@ func runDiffBatch(stdout, stderr io.Writer, beforeName, afterName string, stdin 
 
 func runDiff(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("diff", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, diffUsage)
@@ -200,6 +201,14 @@ func runDiff(args []string, stdout, stderr io.Writer, getenv func(string) string
 	report, err := soroauth.DiffEntries(before, after)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "%w", err))
+	}
+
+	if flagVerbose(flags) {
+		fmt.Fprintf(stderr, "soroauth: diff: identical=%t payload_changed=%t signatures_changed=%t changes=%d stale=%d\n",
+			report.Identical, report.PayloadChanged, report.SignaturesChanged, len(report.Changes), len(report.StaleSignatures))
+		for _, path := range report.StaleSignatures {
+			fmt.Fprintf(stderr, "soroauth: diff: stale signature at %s\n", path)
+		}
 	}
 
 	if jsonMode {

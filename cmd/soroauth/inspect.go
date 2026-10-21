@@ -56,6 +56,7 @@ exit codes:
 
 func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("inspect", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, inspectUsage)
@@ -115,12 +116,22 @@ func runInspect(args []string, stdout, stderr io.Writer, getenv func(string) str
 			return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "%w", err))
 		}
 		report = infos
+		if flagVerbose(flags) {
+			for i, info := range infos {
+				fmt.Fprintf(stderr, "soroauth: inspect: entry %d: credential_type=%s address_bound=%t delegates=%d sub_invocations=%d\n",
+					i+1, info.CredentialType, info.AddressBound, countDelegateNodes(info.Delegates), info.SubInvocations)
+			}
+		}
 	} else {
 		info, err := soroauth.Inspect(input.Entry)
 		if err != nil {
 			return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "%w", err))
 		}
 		report = info
+		if flagVerbose(flags) {
+			fmt.Fprintf(stderr, "soroauth: inspect: credential_type=%s address_bound=%t delegates=%d sub_invocations=%d\n",
+				info.CredentialType, info.AddressBound, countDelegateNodes(info.Delegates), info.SubInvocations)
+		}
 	}
 
 	if *textFlag {
@@ -188,4 +199,12 @@ func runInspectBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Read
 	}
 
 	return run.finish(stdout, jsonFlag)
+}
+
+func countDelegateNodes(nodes []soroauth.NodeInfo) int {
+	total := len(nodes)
+	for _, node := range nodes {
+		total += countDelegateNodes(node.Nested)
+	}
+	return total
 }

@@ -180,6 +180,7 @@ func TestSpecsMatchTheRealFlagSets(t *testing.T) {
 			if spec.Name == "tui" {
 				t.Skip("tui parses args by hand; covered by TestTUISpecMatchesItsUsage")
 			}
+
 			_, stderr, err := runCLI(t, spec.Name, "-h")
 			// -h prints usage and returns a usage error through the flag
 			// package's ErrHelp path; anything naming the command unknown is
@@ -214,6 +215,41 @@ func TestSpecsMatchTheRealFlagSets(t *testing.T) {
 					"add them to commandSpecs so the completion scripts offer them", spec.Name, extra)
 			}
 		})
+	}
+}
+
+func TestREADMEFlagReference(t *testing.T) {
+	if err := checkREADMEFlagReference(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestREADMEFlagReferenceReflectsSpecChanges(t *testing.T) {
+	changed := append([]commandSpec(nil), commandSpecs...)
+	changed[0] = commandSpec{
+		Name:        changed[0].Name,
+		Description: changed[0].Description,
+		Flags: append(append([]flagSpec(nil), changed[0].Flags...),
+			flagSpec{Name: "future-option", Description: "a test-only option", TakesValue: true}),
+	}
+
+	got := renderREADMEFlagReference(changed)
+	if !strings.Contains(got, "--future-option") || !strings.Contains(got, "a test-only option") {
+		t.Fatalf("generated reference does not include the new spec flag:\n%s", got)
+	}
+	if got == renderREADMEFlagReference(commandSpecs) {
+		t.Fatal("adding a spec flag did not change the generated reference")
+	}
+	readme, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedREADME, err := replaceREADMEFlagReference(string(readme), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedREADME == string(readme) {
+		t.Fatal("adding a spec flag would not make the committed README reference stale")
 	}
 }
 

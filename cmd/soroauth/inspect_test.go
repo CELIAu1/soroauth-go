@@ -272,14 +272,13 @@ func TestInspectJSONErrorStaysOnStdoutOnly(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr must stay empty when --json handles the error, got %q", stderr)
 	}
-	var out struct {
-		Error string `json:"error"`
-	}
+	var out jsonErrorOutput
 	if jsonErr := json.Unmarshal([]byte(stdout), &out); jsonErr != nil {
 		t.Fatalf("decoding stdout as JSON: %v\nstdout: %s", jsonErr, stdout)
 	}
-	if !strings.Contains(out.Error, "decoding --entry") {
-		t.Errorf("error field %q does not mention the decode failure", out.Error)
+	if out.SchemaVersion != jsonErrorSchemaVersion || out.Code != "usage_error" ||
+		out.Field != "--entry" || out.ExitCode != ExitUsageError || out.Message == "" {
+		t.Errorf("error object does not satisfy the versioned schema: %+v", out)
 	}
 }
 

@@ -101,10 +101,9 @@ func TestWASMBudgetExceededReturnsAnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "over the")
 }
 
-// TestWASMBudgetStdoutIsResultsOnlyOnTheFailurePath is the acceptance criterion
-// for this subcommand: a script pipes stdout to jq and must get parseable JSON
-// whether the build passed or failed. The reason it failed is the returned
-// error, which main writes to stderr.
+// TestWASMBudgetStdoutIsResultsOnlyOnTheFailurePath pins the JSON error schema
+// when an artifact exceeds its budget; text mode still prints the result and
+// returns the existing human-readable error.
 func TestWASMBudgetStdoutIsResultsOnlyOnTheFailurePath(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		path := writeArtifact(t, 4096)
@@ -112,15 +111,15 @@ func TestWASMBudgetStdoutIsResultsOnlyOnTheFailurePath(t *testing.T) {
 		err := runWASMBudget([]string{"--out", path, "--budget", "1024", "--json"}, &stdout, &stderr)
 		require.Error(t, err)
 
-		var got WASMBudgetResult
+		var got jsonErrorOutput
 		require.NoError(t, json.Unmarshal(stdout.Bytes(), &got),
-			"stdout must still parse as the JSON result when over budget, got %q", stdout.String())
-		assert.Equal(t, WASMBudgetResult{Size: 4096, Budget: 1024, Exceeded: true}, got)
-
-		// Nothing diagnostic leaked into stdout: no banner, no "ERROR", and
-		// none of the error's own text.
-		assert.NotContains(t, strings.ToLower(stdout.String()), "error")
-		assert.NotContains(t, stdout.String(), err.Error())
+			"stdout must carry the structured JSON error when over budget, got %q", stdout.String())
+		assert.Equal(t, jsonErrorSchemaVersion, got.SchemaVersion)
+		assert.Equal(t, "command_failed", got.Code)
+		assert.Equal(t, "--budget", got.Field)
+		assert.Equal(t, ExitCode(err), got.ExitCode)
+		assert.Equal(t, got.Message, got.Error)
+		assert.Empty(t, stderr.String())
 	})
 
 	t.Run("text", func(t *testing.T) {

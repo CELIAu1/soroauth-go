@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -192,7 +193,7 @@ func TestResolveNetwork(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveNetwork(context.Background(), tt.value, "", func(string) string { return "" }, func(context.Context, string) (string, error) { return "", fmt.Errorf("not called") })
+			got, err := resolveNetwork(context.Background(), tt.value, "", io.Discard, func(string) string { return "" }, func(context.Context, string) (string, error) { return "", fmt.Errorf("not called") })
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("resolveNetwork(%q) succeeded, returning %q", tt.value, got)

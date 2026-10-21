@@ -106,6 +106,7 @@ func runSign(args []string, stdout, stderr io.Writer, getenv func(string) string
 
 func runSignWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("sign", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, signUsage)
@@ -159,7 +160,7 @@ func runSignWithStdin(args []string, stdout, stderr io.Writer, getenv func(strin
 
 	resolvedNet := resolveNetworkValue(set, *networkFlag, getenv, cfg).Value
 	resolvedRPC := resolveRPCURLValue(set, *rpcURL, getenv, cfg, "").Value
-	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
@@ -230,6 +231,11 @@ func runSignWithStdin(args []string, stdout, stderr io.Writer, getenv func(strin
 		if err != nil {
 			return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "encoding the signed envelope: %w", err))
 		}
+		if flagVerbose(flags) {
+			entries, _ := soroauth.EnvelopeEntries(signed)
+			fmt.Fprintf(stderr, "soroauth: sign: envelope: signer=%s expiration=%d credential_entries=%d\n",
+				signer.Address(), expiration, len(entries))
+		}
 		if jsonMode {
 			enc := json.NewEncoder(stdout)
 			enc.SetEscapeHTML(false)
@@ -256,6 +262,19 @@ func runSignWithStdin(args []string, stdout, stderr io.Writer, getenv func(strin
 		signer, expiration, passphrase, opts...)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, newErrorf(exitCodeForSigningError(err), "%w", err))
+	}
+	if flagVerbose(flags) {
+		target := signer.Address()
+		if *forAddress != "" {
+			target = *forAddress
+		}
+		info, inspectErr := soroauth.Inspect(signed)
+		arm := "unknown"
+		if inspectErr == nil {
+			arm = info.CredentialType
+		}
+		fmt.Fprintf(stderr, "soroauth: sign: entry: signer=%s target=%s arm=%s expiration=%d\n",
+			signer.Address(), target, arm, expiration)
 	}
 
 	encoded, err := encodeEntry(signed)

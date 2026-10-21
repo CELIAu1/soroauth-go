@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -122,6 +123,15 @@ func NewTUIStyles() *TUIStyles {
 // If stdin is not a TTY, it degrades to non-interactive output (equivalent to
 // running inspect and sign commands).
 func TUI(ctx context.Context, entryB64 string, validUntilLedger uint32, networkPassphrase string, secretEnvVar string, forAddress string) error {
+	return TUIWithOutput(ctx, entryB64, validUntilLedger, networkPassphrase, secretEnvVar, forAddress, os.Stdout)
+}
+
+// TUIWithOutput is TUI with the non-interactive result stream injected.
+//
+// The CLI's --quiet mode buffers stdout and discards it on success. Without an
+// injected writer the fallback path would write to os.Stdout directly and leak
+// output through that buffer, so the CLI uses this entry point.
+func TUIWithOutput(ctx context.Context, entryB64 string, validUntilLedger uint32, networkPassphrase string, secretEnvVar string, forAddress string, stdout io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("soroauth: tui: %w", err)
 	}
@@ -147,7 +157,7 @@ func TUI(ctx context.Context, entryB64 string, validUntilLedger uint32, networkP
 
 	// If not a TTY, fall back to non-interactive output
 	if !isTTY() {
-		return runNonInteractive(ctx, &entry, &info, findings, validUntilLedger, networkPassphrase, secretEnvVar, forAddress)
+		return runNonInteractive(ctx, &entry, &info, findings, validUntilLedger, networkPassphrase, secretEnvVar, forAddress, stdout)
 	}
 
 	// Get secret from environment
@@ -175,7 +185,7 @@ func TUI(ctx context.Context, entryB64 string, validUntilLedger uint32, networkP
 		styles:            NewTUIStyles(),
 	}
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(stdout))
 	_, err = p.Run()
 	return err
 }
@@ -187,20 +197,20 @@ func isTTY() bool {
 }
 
 // runNonInteractive runs the inspect and sign flow without TUI.
-func runNonInteractive(ctx context.Context, entry *xdr.SorobanAuthorizationEntry, info *EntryInfo, findings []Finding, validUntilLedger uint32, networkPassphrase string, secretEnvVar string, forAddress string) error {
+func runNonInteractive(ctx context.Context, entry *xdr.SorobanAuthorizationEntry, info *EntryInfo, findings []Finding, validUntilLedger uint32, networkPassphrase string, secretEnvVar string, forAddress string, stdout io.Writer) error {
 	// Print inspection
-	fmt.Println("=== Authorization Entry Inspection ===")
-	printEntryInfo(info)
+	fmt.Fprintln(stdout, "=== Authorization Entry Inspection ===")
+	printEntryInfo(stdout, info)
 
 	// Print findings
 	if len(findings) > 0 {
-		fmt.Println("\n=== Risk Findings ===")
+		fmt.Fprintln(stdout, "\n=== Risk Findings ===")
 		for _, f := range findings {
-			printFinding(f)
+			printFinding(stdout, f)
 		}
 	} else {
-		fmt.Println("\n=== Risk Findings ===")
-		fmt.Println("  No findings")
+		fmt.Fprintln(stdout, "\n=== Risk Findings ===")
+		fmt.Fprintln(stdout, "  No findings")
 	}
 
 	// Sign
@@ -229,54 +239,54 @@ func runNonInteractive(ctx context.Context, entry *xdr.SorobanAuthorizationEntry
 	if err != nil {
 		return fmt.Errorf("marshalling signed entry: %w", err)
 	}
-	fmt.Println("\n=== Signed Entry (base64) ===")
-	fmt.Println(base64.StdEncoding.EncodeToString(signedBytes))
+	fmt.Fprintln(stdout, "\n=== Signed Entry (base64) ===")
+	fmt.Fprintln(stdout, base64.StdEncoding.EncodeToString(signedBytes))
 
 	return nil
 }
 
-func printEntryInfo(info *EntryInfo) {
-	fmt.Printf("Credential Type: %s\n", info.CredentialType)
-	fmt.Printf("Address Bound: %v\n", info.AddressBound)
+func printEntryInfo(stdout io.Writer, info *EntryInfo) {
+	fmt.Fprintf(stdout, "Credential Type: %s\n", info.CredentialType)
+	fmt.Fprintf(stdout, "Address Bound: %v\n", info.AddressBound)
 	if info.Address != "" {
-		fmt.Printf("Address: %s\n", info.Address)
+		fmt.Fprintf(stdout, "Address: %s\n", info.Address)
 	}
 	if info.Nonce != 0 {
-		fmt.Printf("Nonce: %d\n", info.Nonce)
+		fmt.Fprintf(stdout, "Nonce: %d\n", info.Nonce)
 	}
 	if info.ValidUntilLedger != 0 {
-		fmt.Printf("Valid Until Ledger: %d\n", info.ValidUntilLedger)
+		fmt.Fprintf(stdout, "Valid Until Ledger: %d\n", info.ValidUntilLedger)
 	}
-	fmt.Printf("Top Level Signed: %v\n", info.TopLevelSigned)
+	fmt.Fprintf(stdout, "Top Level Signed: %v\n", info.TopLevelSigned)
 	if info.RootContract != "" {
-		fmt.Printf("Root Contract: %s\n", info.RootContract)
+		fmt.Fprintf(stdout, "Root Contract: %s\n", info.RootContract)
 	}
 	if info.RootFunction != "" {
-		fmt.Printf("Root Function: %s\n", info.RootFunction)
+		fmt.Fprintf(stdout, "Root Function: %s\n", info.RootFunction)
 	}
-	fmt.Printf("Sub Invocations: %d\n", info.SubInvocations)
+	fmt.Fprintf(stdout, "Sub Invocations: %d\n", info.SubInvocations)
 
 	if len(info.Delegates) > 0 {
-		fmt.Println("\nDelegates:")
-		printDelegates(info.Delegates, 1)
+		fmt.Fprintln(stdout, "\nDelegates:")
+		printDelegates(stdout, info.Delegates, 1)
 	}
 }
 
-func printDelegates(delegates []NodeInfo, depth int) {
+func printDelegates(stdout io.Writer, delegates []NodeInfo, depth int) {
 	indent := strings.Repeat("  ", depth)
 	for _, d := range delegates {
 		signedMark := " "
 		if d.Signed {
 			signedMark = "✓"
 		}
-		fmt.Printf("%s[%s] %s\n", indent, signedMark, d.Address)
+		fmt.Fprintf(stdout, "%s[%s] %s\n", indent, signedMark, d.Address)
 		if len(d.Nested) > 0 {
-			printDelegates(d.Nested, depth+1)
+			printDelegates(stdout, d.Nested, depth+1)
 		}
 	}
 }
 
-func printFinding(f Finding) {
+func printFinding(stdout io.Writer, f Finding) {
 	var prefix string
 	switch f.Severity {
 	case SeverityCritical:
@@ -286,9 +296,9 @@ func printFinding(f Finding) {
 	case SeverityInfo:
 		prefix = "INFO"
 	}
-	fmt.Printf("  [%s] %s: %s\n", prefix, f.Code, f.Title)
-	fmt.Printf("      %s\n", f.Description)
-	fmt.Printf("      Rationale: %s\n", f.Rationale)
+	fmt.Fprintf(stdout, "  [%s] %s: %s\n", prefix, f.Code, f.Title)
+	fmt.Fprintf(stdout, "      %s\n", f.Description)
+	fmt.Fprintf(stdout, "      Rationale: %s\n", f.Rationale)
 }
 
 // Init initializes the TUI model.

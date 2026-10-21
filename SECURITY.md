@@ -113,7 +113,8 @@ code.
 
 ## Supported versions
 
-Only the latest release receives fixes. At v0.1.0 that is the only release.
+Only the latest release receives fixes. The latest release is the supported
+release.
 
 ## Retracting a release
 

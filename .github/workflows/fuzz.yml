@@ -66,6 +66,9 @@ jobs:
           - target: FuzzDiffEntries
             package: .
             corpus: testdata/fuzz/FuzzDiffEntries
+          - target: FuzzCanonicalJSON
+            package: .
+            corpus: testdata/fuzz/FuzzCanonicalJSON
           - target: FuzzCopyRoundTrip
             package: ./internal/xdrcopy
             corpus: internal/xdrcopy/testdata/fuzz/FuzzCopyRoundTrip

@@ -2,6 +2,9 @@
   "version": "0.2",
   "language": "en",
   "words": [
+    "unevaluable",
+    "ciphersuite",
+    "bytemare",
     "AAAAAAAARYD",
     "AAAAAAAATU",
     "AAAAAQAAAAAAAAAY",
@@ -427,6 +430,7 @@
     "rpc",
     "rpcclient",
     "rpcflow",
+    "rpcfixture",
     "run",
     "rust",
     "s",

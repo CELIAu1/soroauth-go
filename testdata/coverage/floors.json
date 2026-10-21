@@ -1,8 +1,8 @@
 {
-  "note": "Per-package coverage floors for github.com/soroauth/soroauth-go, replacing the single 60% repository floor the coverage job in .github/workflows/ci-go.yml enforced until 2026-10-15. Measured 2026-10-15 with GOTOOLCHAIN=go1.25.4 (the toolchain line in go.mod) on INTEL(R) XEON(R) PLATINUM 8573C (2 vCPU), linux/amd64, with: GOTOOLCHAIN=go1.25.4 go test -coverprofile=coverage.out -covermode=atomic ./... Percentages are statement coverage summed per package directory by scripts/checkcov, not go tool cover -func, whose per-function percentages cannot be aggregated into per-package statement coverage. The measurement runs under the toolchain go.mod pins on purpose: statement counts move between Go minor versions (go1.27 counts the server package ~4.5 points lower than go1.25.4), and both `make coverage` and CI set GOTOOLCHAIN from go.mod the same way. Each floor is the measured percentage rounded down to the nearest 0.1: the 0.1 is slack against toolchain drift, and a floor nobody can meet gets raised away. Raising a floor needs a fresh measurement in the reason; lowering one needs a fresh measurement named in the commit body. Packages with no tests by design are listed under excluded with a reason, never given a floor of zero. The e2e, cmd/soroauth and rpcflow entries were re-measured on 2026-10-16 with the same command and toolchain; the numbers before that re-measurement and what moved them are in the commit that changed them.",
+  "note": "Per-package coverage floors for github.com/soroauth/soroauth-go, replacing the single 60% repository floor the coverage job in .github/workflows/ci-go.yml enforced until 2026-10-15. Measured 2026-10-15 with GOTOOLCHAIN=go1.25.4 (the toolchain line in go.mod) on INTEL(R) XEON(R) PLATINUM 8573C (2 vCPU), linux/amd64, with: GOTOOLCHAIN=go1.25.4 go test -coverprofile=coverage.out -covermode=atomic ./... Percentages are statement coverage summed per package directory by scripts/checkcov, not go tool cover -func, whose per-function percentages cannot be aggregated into per-package statement coverage. The measurement runs under the toolchain go.mod pins on purpose: statement counts move between Go minor versions (go1.27 counts the server package ~4.5 points lower than go1.25.4), and both `make coverage` and CI set GOTOOLCHAIN from go.mod the same way. Each floor is the measured percentage rounded down to the nearest 0.1: the 0.1 is slack against toolchain drift, and a floor nobody can meet gets raised away. Raising a floor needs a fresh measurement in the reason; lowering one needs a fresh measurement named in the commit body. Packages with no tests by design are listed under excluded with a reason, never given a floor of zero. The e2e, cmd/soroauth and rpcflow entries were re-measured on 2026-10-16 with the same command and toolchain; the numbers before that re-measurement and what moved them are in the commit that changed them. The rpcflow/rpcfixture floor was added on 2026-10-21 from the same-run measurement, rounded down to the nearest 0.1. The fireblocks, frost, policy, signertest and turnkey floors were added on 2026-10-21 after the coverage gate reported them missing; each is the same-run measurement rounded down to the nearest 0.1.",
   "policy": {
     "signing_path_floor_min_exclusive": 60,
-    "text": "Floors are set from measurement. The signing path (the root package and internal/xdrcopy) carries floors strictly above the 60% repository-wide floor this scheme replaced, so a regression in the path that produces signatures cannot hide behind a repository average. Coverage is not correctness: it says which lines ran, not that the result is right — the mutation-testing work is the stronger check; these floors are a tripwire for regressions, not evidence of correctness."
+    "text": "Floors are set from measurement. The signing path (the root package and internal/xdrcopy) carries floors strictly above the 60% repository-wide floor this scheme replaced, so a regression in the path that produces signatures cannot hide behind a repository average. Coverage is not correctness: it says which lines ran, not that the result is right \u2014 the mutation-testing work is the stronger check; these floors are a tripwire for regressions, not evidence of correctness."
   },
   "packages": {
     "github.com/soroauth/soroauth-go": {
@@ -66,6 +66,36 @@
       "measured": 66.1,
       "floor": 66.1,
       "reason": "the HTTP verification service: it must never report cannot-check as verified"
+    },
+    "github.com/soroauth/soroauth-go/rpcflow/rpcfixture": {
+      "measured": 74.3,
+      "floor": 74.2,
+      "reason": "the record/replay fixture format and strict replayer: a loose match would replay the wrong RPC response"
+    },
+    "github.com/soroauth/soroauth-go/fireblocks": {
+      "measured": 82.9,
+      "floor": 82.8,
+      "reason": "the Fireblocks remote signer: it must reject a non-OK API response rather than returning an empty signature"
+    },
+    "github.com/soroauth/soroauth-go/frost": {
+      "measured": 76.2,
+      "floor": 76.1,
+      "reason": "the FROST multisig helper: a wrong share or payload here produces a signature the chain rejects"
+    },
+    "github.com/soroauth/soroauth-go/policy": {
+      "measured": 73.1,
+      "floor": 73.0,
+      "reason": "authorization policy evaluation: a policy bug can approve an entry the caller meant to refuse"
+    },
+    "github.com/soroauth/soroauth-go/signertest": {
+      "measured": 81.3,
+      "floor": 81.2,
+      "reason": "the shared signer conformance suite: its checks are the contract every Signer implementation must meet"
+    },
+    "github.com/soroauth/soroauth-go/turnkey": {
+      "measured": 80.0,
+      "floor": 79.9,
+      "reason": "the Turnkey remote signer: response parsing and signing-refusal paths must fail closed"
     }
   },
   "excluded": {

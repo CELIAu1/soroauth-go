@@ -164,6 +164,7 @@ func verifyFailed(report soroauth.VerificationReport, allowUnsigned bool) bool {
 
 func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, verifyUsage)
@@ -180,7 +181,7 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 	jsonFlag := flags.Bool("json", false, "output as JSON")
 
 	if err := flags.Parse(args); err != nil {
-		return newErrorf(ExitUsageError, "%w", err)
+		return writeJSONError(stdout, *jsonFlag, newErrorf(ExitUsageError, "%w", err))
 	}
 
 	set := visitedFlags(flags)
@@ -213,7 +214,7 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 	}
 	// Resolve the network passphrase, which may fetch from an RPC endpoint if "rpc" is given.
 	resolvedRPC := resolveRPCURLValue(set, "", getenv, cfg, "").Value
-	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), resolvedNet, resolvedRPC, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, err)
 	}
@@ -258,6 +259,22 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 			out.OperationIndex = item.operationIndex + 1
 			out.EntryIndex = item.entryIndex + 1
 		}
+		if flagVerbose(flags) {
+			where := "entry"
+			if input.IsEnvelope {
+				where = fmt.Sprintf("operation %d entry %d", out.OperationIndex, out.EntryIndex)
+			}
+			if len(report.Nodes) == 0 {
+				fmt.Fprintf(stderr, "soroauth: verify: %s: %s, no credential node to check\n", where, report.CredentialType)
+			}
+			for _, node := range report.Nodes {
+				fmt.Fprintf(stderr, "soroauth: verify: %s: node %s: %s", where, node.Address, node.Verdict)
+				if node.Reason != "" {
+					fmt.Fprintf(stderr, " (%s)", node.Reason)
+				}
+				fmt.Fprintln(stderr)
+			}
+		}
 		outputs = append(outputs, out)
 		if verifyFailed(report, *allowUnsigned) {
 			failed = true
@@ -291,7 +308,7 @@ func runVerify(args []string, stdout, stderr io.Writer, getenv func(string) stri
 // outcome carries its position, and the exit code is the FIRST failure's.
 func runVerifyBatch(stdout, stderr io.Writer, entriesFlag string, stdin io.Reader, networkFlag string, validUntil uint, allowUnsigned, jsonFlag bool, getenv func(string) string, cfg loadedConfig, set map[string]bool) error {
 	resolvedRPC := resolveRPCURLValue(set, "", getenv, cfg, "").Value
-	passphrase, err := resolveNetwork(context.Background(), networkFlag, resolvedRPC, getenv, fetchNetworkPassphrase)
+	passphrase, err := resolveNetwork(context.Background(), networkFlag, resolvedRPC, stderr, getenv, fetchNetworkPassphrase)
 	if err != nil {
 		return writeJSONError(stdout, jsonFlag, err)
 	}

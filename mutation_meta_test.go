@@ -73,6 +73,9 @@ func TestEveryExportedEntryFunctionPreservesInput(t *testing.T) {
 		"Inspect": func(entry xdr.SorobanAuthorizationEntry) {
 			_, _ = Inspect(entry)
 		},
+		"MarshalCanonicalJSON": func(entry xdr.SorobanAuthorizationEntry) {
+			_, _ = MarshalCanonicalJSON(entry)
+		},
 		"NewCoordinator": func(entry xdr.SorobanAuthorizationEntry) {
 			_, _ = NewCoordinator(entry, validUntil, "Test SDF Network ; September 2015")
 		},

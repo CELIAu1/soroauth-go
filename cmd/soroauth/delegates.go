@@ -78,6 +78,7 @@ func runDelegates(args []string, stdout, stderr io.Writer, getenv func(string) s
 // --valid-for falls back to $SOROAUTH_RPC_URL.
 func runDelegatesWithStdin(args []string, stdout, stderr io.Writer, getenv func(string) string, stdin io.Reader) error {
 	flags := flag.NewFlagSet("delegates", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, delegatesUsage)
@@ -158,6 +159,13 @@ func runDelegatesWithStdin(args []string, stdout, stderr io.Writer, getenv func(
 	encoded, err := encodeEntry(wrapped)
 	if err != nil {
 		return writeJSONError(stdout, jsonMode, newErrorf(ExitGeneralError, "%w", err))
+	}
+	if flagVerbose(flags) {
+		info, inspectErr := soroauth.Inspect(wrapped)
+		if inspectErr == nil {
+			fmt.Fprintf(stderr, "soroauth: delegates: arm=%s expiration=%d delegate_nodes=%d\n",
+				info.CredentialType, info.ValidUntilLedger, countDelegateNodes(info.Delegates))
+		}
 	}
 
 	if jsonMode {

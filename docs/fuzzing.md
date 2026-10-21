@@ -24,13 +24,15 @@ specific invariant rather than only "never panic":
 | `FuzzDecodeAuthorizationEntry` | root               | Never panics; whatever the bounded decoder consumed re-encodes identically without growing; oversize input is refused.                                                        |
 | `FuzzVerifyEntry`              | root               | Never reports `verified` for a signature `crypto/ed25519` rejects; a contract node is always `cannot_check`; malformed signatures produce a verdict, never a panic.           |
 | `FuzzDiffEntries`              | root               | Diffing an entry against itself is `Identical` with no changes; `PayloadChanged` agrees with `Preimage`/`Payload`; `StaleSignatures` is empty when `PayloadChanged` is false. |
+| `FuzzCanonicalJSON`            | root               | Any entry that decodes survives XDR to canonical JSON to XDR byte-identically; a document the encoder produces always decodes.                                                |
 | `FuzzCopyRoundTrip`            | `internal/xdrcopy` | A copy is byte-identical to its source and shares no memory with it.                                                                                                          |
 
-`FuzzDiffEntries` is the one target taking two entries per seed. The wasm parity
-harness decodes and hashes one entry at a time and has no `DiffEntries` surface,
-so its seeds are recorded in `fuzz_expectations.json` as a
-`non_replayed_targets` entry and counted as skipped by `wasm/parity.mjs`, with
-the reason printed, rather than replayed.
+`FuzzDiffEntries` takes two entries per seed, and `FuzzCanonicalJSON` exercises
+the JSON layer. The wasm parity harness decodes and hashes one entry at a time
+and has neither a `DiffEntries` nor a canonical-JSON surface, so both targets
+are recorded in `fuzz_expectations.json` as `non_replayed_targets` entries and
+counted as skipped by `wasm/parity.mjs`, with the reason printed, rather than
+replayed.
 
 `FuzzDecodeAuthorizationEntry` documents one decoder behavior worth knowing: the
 XDR decoder reads a prefix of its input and ignores trailing bytes, so the

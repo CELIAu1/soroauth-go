@@ -88,19 +88,19 @@ func TestEntryDecodeMessagesThroughTheCLI(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tt.wantMsg)
 			}
 
-			// The same message reaches a --json caller, in the error field.
+			// JSON errors carry a stable code and field instead of exposing
+			// input-dependent prose.
 			jsonOut, _, jsonErr := runCLI(t, "inspect", "--entry", tt.value, "--json")
 			if jsonErr == nil {
 				t.Fatal("inspect --json accepted the value")
 			}
-			var decoded struct {
-				Error string `json:"error"`
-			}
+			var decoded jsonErrorOutput
 			if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
 				t.Fatalf("stdout is not a JSON error object: %v\noutput: %q", err, jsonOut)
 			}
-			if !strings.Contains(decoded.Error, tt.wantMsg) {
-				t.Errorf("JSON error field %q does not mention %q", decoded.Error, tt.wantMsg)
+			if decoded.SchemaVersion != jsonErrorSchemaVersion || decoded.Code != "usage_error" ||
+				decoded.Field != "--entry" || decoded.Message == "" || decoded.ExitCode != ExitUsageError {
+				t.Errorf("JSON error is missing stable fields: %+v", decoded)
 			}
 		})
 	}

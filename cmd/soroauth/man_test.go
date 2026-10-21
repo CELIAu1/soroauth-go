@@ -133,8 +133,12 @@ func TestManUsageErrors(t *testing.T) {
 		if got := ExitCode(err); got != ExitUsageError {
 			t.Errorf("exit code = %d, want %d", got, ExitUsageError)
 		}
-		if !strings.Contains(stdout, "mutually exclusive") {
-			t.Errorf("stdout %q does not explain the refusal", stdout)
+		var got jsonErrorOutput
+		if decodeErr := json.Unmarshal([]byte(stdout), &got); decodeErr != nil {
+			t.Fatalf("stdout is not a structured JSON error: %v\n%s", decodeErr, stdout)
+		}
+		if got.Code != "usage_error" || got.Field != "--out" || got.ExitCode != ExitUsageError {
+			t.Errorf("unexpected JSON refusal: %+v", got)
 		}
 	})
 

@@ -6,7 +6,7 @@
 # should be injected by whatever starts the container (e.g. `docker run -e`,
 # a CI secret, or an orchestrator's secret store) rather than baked into the
 # image or this Dockerfile.
-FROM golang:1.25.4 AS build
+FROM golang:1.26.3 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

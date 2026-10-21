@@ -34,8 +34,8 @@ Dynamic address completion only parses base64 XDR in memory; it never executes
 entry contents or runs a signer. --secret-env is completed by flag name only:
 the shells never see or complete a variable's value.
 
-With --json, prints a JSON object with fields "shell" and "script"; on error, a
-JSON object with field "error" and exits non-zero.
+With --json, prints a JSON object with fields "shell" and "script"; on error,
+prints the versioned machine-readable error schema documented in README.md.
 
 exit codes:
   0  success
@@ -273,6 +273,7 @@ type completionsOutput struct {
 
 func runCompletions(args []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("completions", flag.ContinueOnError)
+	registerVerbosityFlags(flags)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprint(stderr, completionsUsage)
@@ -675,4 +676,17 @@ func zshQuote(s string) string {
 // aborts the load of the whole completion file at that line.
 func fishQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `\'`) + "'"
+}
+
+// init makes the shared verbosity flags part of every completion spec. The
+// flags are registered by registerVerbosityFlags in each subcommand, so the
+// spec and the real FlagSet cannot drift.
+func init() {
+	verbosityFlags := []flagSpec{
+		{Name: "quiet", Description: quietFlagUsage, TakesValue: false},
+		{Name: "verbose", Description: verboseFlagUsage, TakesValue: false},
+	}
+	for i := range commandSpecs {
+		commandSpecs[i].Flags = append(commandSpecs[i].Flags, verbosityFlags...)
+	}
 }
