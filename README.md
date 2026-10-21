@@ -1341,7 +1341,8 @@ reports the structure; it does not replace the rest of the Stellar toolchain.
 | inspect       | --config            | <value> | path to CLI configuration file                                                                        |
 | inspect       | --entry             | <value> | the authorization entry or transaction envelope, as base64 XDR                                        |
 | inspect       | --entries           | <value> | a file of entries to inspect, one base64 entry per line, or - for stdin                               |
-| inspect       | --json              | —       | accepted for consistency; inspect's output is always JSON                                             |
+| inspect       | --json              | —       | output as JSON (default)                                                                              |
+| inspect       | --text              | —       | output as human-readable text using EntryInfo.String()                                                |
 | inspect       | --quiet             | —       | print nothing on success; the exit code is the result                                                 |
 | inspect       | --verbose           | —       | explain the verdict on stderr without printing the entry or a secret                                  |
 | tree          | --config            | <value> | path to CLI configuration file                                                                        |
